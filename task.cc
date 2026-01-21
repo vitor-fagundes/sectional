@@ -15,11 +15,13 @@ namespace nr2{
         std::random_device rd;
         std::default_random_engine generator{rd()};
         std::uniform_int_distribution<int> distribution(3, 6);
+        std::uniform_int_distribution<int> quorumDist(1, 3);  // 3 a 5 agrupamentos
         //std::uniform_int_distribution<int> duration(1, 2);
         //std::uniform_int_distribution<int> quorum(3, 5);
         this->taskId = generator();
         //this->quorum = quorum(generator);
-        this->quorum = 1;
+        this->quorum = quorumDist(generator);
+        // this->quorum = 1;
         //this->duration = duration(generator)*60; // Generates a task with duration either 60 or 120
         this->duration = 60;
 

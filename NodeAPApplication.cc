@@ -112,6 +112,9 @@ namespace nr2{
         this->tasks->pop_front();
         std::string serializedTask = this->currentDispatchedTask->serialize();
 
+        // Guardar o quorum necessário (número de agrupamentos)
+        this->requiredQuorum = this->currentDispatchedTask->getQuorum();
+
         // Dispatch
         uint16_t port = 2020;
         /*
@@ -130,7 +133,7 @@ namespace nr2{
         for(size_t i = 0; i < clusterLeaders->size(); i++) {
             Inet6SocketAddress remote = Inet6SocketAddress(clusterLeaders->at(i), port);
             int status = this->m_socket->SendTo(pack, 0, remote);
-            
+
             if(status == -1){
                 NS_LOG_FUNCTION("Could not dispatch task to " << Address(remote.GetIpv6()) << " at port "+remote.GetPort());
             }
@@ -171,17 +174,23 @@ namespace nr2{
     }
 
     void NodeAPApplication::taskConfirmation(){
-        // If no confimation: Re-enqeue the task
-        if(this->confirmationsSinceLastDispatch == 0){
+        // Verificar se atingiu o quorum de agrupamentos
+        if(this->confirmationsSinceLastDispatch < this->requiredQuorum){
+            // Não atingiu o quorum mínimo de agrupamentos - re-enfileirar
+            NS_LOG_INFO("AP: Task " << this->currentDispatchedTask->getTid() 
+                        << " failed quorum check: " << this->confirmationsSinceLastDispatch 
+                        << "/" << this->requiredQuorum << " clusters accepted");
             this->tasks->push_back(this->currentDispatchedTask);
             Simulator::Schedule(Seconds(1), &NodeAPApplication::sendTaskToLeaders, this);
         }
         else{
-            // Wait for task to be completed
+            // Quorum atingido - tarefa aceita por agrupamentos suficientes
+            NS_LOG_INFO("AP: Task " << this->currentDispatchedTask->getTid() 
+                        << " quorum satisfied: " << this->confirmationsSinceLastDispatch 
+                        << "/" << this->requiredQuorum << " clusters accepted");
             auto current = this->currentDispatchedTask;
             this->dispatchedTasks->push_back(current);
-
-            // Dispatch another task
+        
             Simulator::Schedule(Seconds(this->currentDispatchedTask->getDuration()), &NodeAPApplication::sendTaskToLeaders, this);
         }
     }
