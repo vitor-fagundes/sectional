@@ -57,5 +57,8 @@ namespace nr2{
             void nullFunction();
             void setAllNodesAddrs(std::vector<Ipv6Address>);
             void setDelay(double);
+
+            // Método para obter tamanho do cluster (nós órfãos em caso de falha)
+            int getClusterSize();
     };
 }

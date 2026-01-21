@@ -476,4 +476,11 @@ namespace nr2{
     void NodeApplication::setDelay(double delay){
         this->delay = delay;
     }
+
+    int NodeApplication::getClusterSize(){
+        if(this->clusterList){
+            return this->clusterList->size();
+        }
+        return 0;
+    }
 }

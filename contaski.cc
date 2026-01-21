@@ -37,10 +37,12 @@ int main (int argc, char *argv[]){
 
 	uint32_t nNodes = 3;
 	int run = 0;
+	double failurePercentage = 0.0; // Porcentagem de líderes aptos que irão falhar
 
 	CommandLine cmd;
 	cmd.AddValue ("nNodes", "Number of node devices", nNodes);
 	cmd.AddValue ("run", "Run number", run);
+	cmd.AddValue ("failurePercentage", "Percentage of apt leaders to fail (0-100)", failurePercentage);
 	cmd.Parse (argc,argv);
 
 	NS_LOG_INFO("Creating " << nNodes << " nodes");
@@ -131,6 +133,9 @@ int main (int argc, char *argv[]){
 	apApplication->SetStartTime(Seconds(10.0));
 	apApplication->SetStopTime(Seconds(SIMTIME+10.0));
 
+	// Configurar porcentagem de falha no AP
+	apApplication->setFailurePercentage(failurePercentage);
+
 	auto nodeAddrs = new std::vector<Ipv6Address>;
 
 	generateCap(nNodes);
@@ -166,6 +171,9 @@ int main (int argc, char *argv[]){
 		nodeapp->setAPAddress(apAddress);
 		nodeapp->setAllNodesAddrs(*nodeAddrs);
 	}
+
+	// Passar referência dos nós para o AP (para aplicar falhas)
+	apApplication->setNodes(nodes);
 
 	for (size_t i = 0; i < nodes.GetN(); i++){
 		Ptr<MobilityModel> deviceMobility = nodes.Get(i)->GetObject<MobilityModel>();

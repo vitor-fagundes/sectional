@@ -1,4 +1,5 @@
 #include "NodeAPApplication.h"
+#include "NodeApplication.h"
 #include "ns3/address.h"
 #include "ns3/ipv6.h"
 #include "ns3/udp-socket-factory.h"
@@ -6,6 +7,8 @@
 #include "constants.h"
 
 #include <iostream>
+#include <algorithm>
+#include <random>
 
 using namespace ns3;
 
@@ -26,9 +29,11 @@ namespace nr2{
         this->m_tid = ns3::UdpSocketFactory::GetTypeId();
         this->m_socket = this->GetNode()->GetObject<Socket>();
         this->clusterLeaders = new std::vector<Ipv6Address>;
+        this->aptLeaders = new std::vector<Ipv6Address>;
         this->dispatchedTasks = new taskVector();
 
         this->confirmationsSinceLastDispatch = 0;
+        this->failurePercentage = 0.0;
         //generateTasks(600); // [TODO: Get time from elsewhere]
 
         for(auto task:*this->tasks){
@@ -53,6 +58,11 @@ namespace nr2{
 
         m_socket->SetRecvCallback(MakeCallback (&NodeAPApplication::recvCallback, this));
         Simulator::Schedule(Seconds(150), &NodeAPApplication::sendTaskToLeaders, this);
+
+        // Agendar falhas no tempo 310s
+        if(this->failurePercentage > 0.0){
+            Simulator::Schedule(Seconds(310), &NodeAPApplication::triggerLeaderFailures, this);
+        }
     }
 
     void NodeAPApplication::StopApplication(){
@@ -162,6 +172,10 @@ namespace nr2{
                 case MessageTypes::TaskAccept:
                     NS_LOG_INFO("AP: TA " << this->currentDispatchedTask->getTid() << ", " << fromIP << " " << Simulator::Now().GetSeconds());
                     this->confirmationsSinceLastDispatch++;
+                    // Registrar líder como apto
+                    if(std::find(this->aptLeaders->begin(), this->aptLeaders->end(), fromIP) == this->aptLeaders->end()){
+                        this->aptLeaders->push_back(fromIP);
+                    }
                     break;
 
                 default:
@@ -188,5 +202,66 @@ namespace nr2{
 
     void NodeAPApplication::setTasks(taskVector* tasks){
         this->tasks = tasks;
+    }
+
+    void NodeAPApplication::setFailurePercentage(double percentage){
+        this->failurePercentage = percentage;
+    }
+
+    void NodeAPApplication::setNodes(NodeContainer nodes){
+        this->networkNodes = nodes;
+    }
+
+    void NodeAPApplication::triggerLeaderFailures(){
+        if(this->aptLeaders->empty()){
+            NS_LOG_INFO("FAILURE: Nenhum líder apto para aplicar falha no tempo " << Simulator::Now().GetSeconds());
+            return;
+        }
+
+        // Calcular quantos líderes irão falhar (arredondamento para cima)
+        int totalAptLeaders = this->aptLeaders->size();
+        int leadersToFail = (int)std::ceil(totalAptLeaders * this->failurePercentage / 100.0);
+        
+        // Se a porcentagem > 0 mas o cálculo deu 0, forçar pelo menos 1
+        if(leadersToFail == 0 && this->failurePercentage > 0){
+            leadersToFail = 1;
+        }
+
+        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalAptLeaders << " líderes aptos irão falhar (" << this->failurePercentage << "%)");
+
+        // Embaralhar lista de líderes aptos para seleção aleatória
+        std::vector<Ipv6Address> shuffledLeaders(*this->aptLeaders);
+        std::random_device rd;
+        std::mt19937 g(rd());
+        std::shuffle(shuffledLeaders.begin(), shuffledLeaders.end(), g);
+
+        // Aplicar falha nos líderes selecionados
+        for(int i = 0; i < leadersToFail; i++){
+            Ipv6Address leaderToFail = shuffledLeaders[i];
+
+            // Encontrar o nó correspondente e desligá-lo
+            for(uint32_t j = 0; j < this->networkNodes.GetN(); j++){
+                Ptr<Node> node = this->networkNodes.Get(j);
+                Ptr<Ipv6> ipv6 = node->GetObject<Ipv6>();
+                Ipv6Address nodeAddr = ipv6->GetAddress(1, 0).GetAddress();
+
+                if(nodeAddr == leaderToFail){
+                    // Parar a aplicação do nó (falha completa)
+                    Ptr<Application> app = node->GetApplication(0);
+                    if(app){
+                        Simulator::ScheduleNow(&Application::SetStopTime, app, Simulator::Now());
+                        // Fechar socket para impedir comunicação
+                        Ptr<NodeApplication> nodeApp = DynamicCast<NodeApplication>(app);
+                        if(nodeApp){
+                            // Contar nós órfãos (membros do cluster do líder que falhou)
+                            int orphanedNodes = nodeApp->getClusterSize();
+                            NS_LOG_INFO("FAILURE: Líder " << leaderToFail << " falhou no tempo " << Simulator::Now().GetSeconds() << " - " << orphanedNodes << " nós órfãos");
+                            nodeApp->StopApplication();
+                        }
+                    }
+                    break;
+                }
+            }
+        }
     }
 }
