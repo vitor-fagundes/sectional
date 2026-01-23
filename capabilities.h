@@ -14,8 +14,8 @@ namespace nr2{
 
     static capabilitiesVector basicCapabilities = {Temperature, Umidity, Presence};
 
-    double capabilitiesSimilarity(capabilitiesVector* cap1, capabilitiesVector* cap2, capabilitiesVector *inter);
-    double capabilitiesSimilarityUFD(capabilitiesVector* cap1, capabilitiesVector* cap2, capabilitiesVector *inter);
+    double capabilitiesSimilarity(capabilitiesVector* cap1, capabilitiesVector* cap2);
+    double capabilitiesSimilarityUFD(capabilitiesVector* cap1, capabilitiesVector* cap2);
     capabilitiesVector* parseCapabilities(std::string capabilitiesString);
     std::string serializeCapabilities(capabilitiesVector* cap);
 }

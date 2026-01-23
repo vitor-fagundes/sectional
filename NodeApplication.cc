@@ -219,17 +219,14 @@ namespace nr2{
 
         for (auto const& neigh: *this->neighCapabilities){
             auto neighCap = neigh.second;
-            capabilitiesVector* inter = new capabilitiesVector();
             
             // CORRIGIDO: Usar capabilitiesSimilarity (Equação 1 do artigo)
             // ao invés de capabilitiesSimilarityUFD
-            double sim = capabilitiesSimilarity(this->capabilities, &neighCap, inter);
+            double sim = capabilitiesSimilarity(this->capabilities, &neighCap);
 
             //auto pair = make_pair(sim, neigh.first);
             auto pair = new std::pair<double, Ipv6Address>(sim, neigh.first);
             this->neighSimilatiries->emplace_back(pair);
-
-            delete inter;
         }
 
         Simulator::ScheduleNow(&NodeApplication::doClustering, this);
