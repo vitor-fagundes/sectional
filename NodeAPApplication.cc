@@ -122,6 +122,9 @@ namespace nr2{
         this->tasks->pop_front();
         std::string serializedTask = this->currentDispatchedTask->serialize();
 
+        // Guardar o quorum necessário (número de agrupamentos)
+        this->requiredQuorum = this->currentDispatchedTask->getQuorum();
+
         // Dispatch
         uint16_t port = 2020;
         /*
@@ -186,11 +189,19 @@ namespace nr2{
 
     void NodeAPApplication::taskConfirmation(){
         // If no confimation: Re-enqeue the task
-        if(this->confirmationsSinceLastDispatch == 0){
+        if(this->confirmationsSinceLastDispatch < this->requiredQuorum){
+            // Não atingiu o quorum mínimo de agrupamentos - re-enfileirar
+            NS_LOG_INFO("AP: Task " << this->currentDispatchedTask->getTid() 
+                        << " failed quorum check: " << this->confirmationsSinceLastDispatch 
+                        << "/" << this->requiredQuorum << " clusters accepted");
             this->tasks->push_back(this->currentDispatchedTask);
             Simulator::Schedule(Seconds(1), &NodeAPApplication::sendTaskToLeaders, this);
         }
         else{
+            // Quorum atingido - tarefa aceita por agrupamentos suficientes
+            NS_LOG_INFO("AP: Task " << this->currentDispatchedTask->getTid() 
+                        << " quorum satisfied: " << this->confirmationsSinceLastDispatch 
+                        << "/" << this->requiredQuorum << " clusters accepted");
             // Wait for task to be completed
             auto current = this->currentDispatchedTask;
             this->dispatchedTasks->push_back(current);
