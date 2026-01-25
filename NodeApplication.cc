@@ -79,6 +79,7 @@ namespace nr2{
         this->neighCapabilities = new std::map<Ipv6Address, capabilitiesVector>;
         this->neighSimilatiries = new std::vector< std::pair<double, Ipv6Address>* >;
         this->clusterCapabilities = new capabilitiesVector();
+        this->myFollowers = new std::vector<Ipv6Address>;
 
         this->capabilities = new capabilitiesVector(cap);
 
@@ -182,6 +183,15 @@ namespace nr2{
                     break;
                 }
                 
+                case MessageTypes::FollowerRegister:{
+                    // Alguém me elegeu como líder
+                    if(this->isLeader){
+                        this->myFollowers->push_back(fromIP);
+                        NS_LOG_INFO("N: FR " << this->GetNodeIpAddress() << " received follower " << fromIP);
+                    }
+                    break;
+                }
+                
                 default:
                     break;
             }
@@ -222,6 +232,7 @@ namespace nr2{
             
             // CORRIGIDO: Usar capabilitiesSimilarity (Equação 1 do artigo)
             // ao invés de capabilitiesSimilarityUFD
+            // CORRIGIDO: Removido parâmetro 'inter' que não era usado
             double sim = capabilitiesSimilarity(this->capabilities, &neighCap);
 
             //auto pair = make_pair(sim, neigh.first);
@@ -287,6 +298,7 @@ namespace nr2{
 
     void NodeApplication::selectAndRegisterLeader(){
         Ipv6Address leader = tiebreakLeader();
+        this->myLeaderAddr = leader;
 
         if( leader == this->GetNodeIpAddress()){
             NS_LOG_INFO("N: LS " << this->GetNodeIpAddress());
@@ -301,6 +313,9 @@ namespace nr2{
             //this->registerLeader();
             Simulator::Schedule(Seconds(90.5+this->delay) - Now(), &NodeApplication::registerLeader, this);
             this->isLeader = true;
+            
+            // Líder adiciona a si mesmo como seguidor
+            this->myFollowers->push_back(this->GetNodeIpAddress());
 
 
             /*float mode = this->getSimilarityMode();
@@ -312,6 +327,9 @@ namespace nr2{
 
             capabilitiesSimilarity(this->capabilities, &((*this->neighCapabilities)[(*it)->second]), this->clusterCapabilities);*/
             this->clusterCapabilities = this->capabilities;
+        } else {
+            // Não sou líder, notificar o líder que o elegi
+            Simulator::Schedule(Seconds(90.5+this->delay) - Now() + MilliSeconds(50), &NodeApplication::notifyLeader, this, leader);
         }
    }
 
@@ -428,6 +446,14 @@ namespace nr2{
         NS_LOG_INFO("N: LR " << this->GetNodeIpAddress() << " at " << Now().GetSeconds());
         Simulator::ScheduleNow(&NodeApplication::sendMessageHelper, this, MessageTypes::LeaderRegister, this->apAddress, (uint8_t*)0, 0 );
         //this->sendMessageHelper(MessageTypes::LeaderRegister, this->apAddress, 0, 0);
+        
+        // Removido: envio de ClusterMembers por mensagem
+        // O AP agora obtém os membros diretamente via getMyFollowers()
+    }
+
+    void NodeApplication::notifyLeader(Ipv6Address leaderAddr){
+        NS_LOG_INFO("N: NL " << this->GetNodeIpAddress() << " notifying leader " << leaderAddr);
+        this->sendMessageHelper(MessageTypes::FollowerRegister, leaderAddr, (uint8_t*)0, 0);
     }
 
    void NodeApplication::setAPAddress(Ipv6Address ip){

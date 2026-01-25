@@ -38,14 +38,27 @@ int main (int argc, char *argv[]){
 	uint32_t nNodes = 3;
 	int run = 0;
 	double failurePercentage = 0.0; // Porcentagem de líderes aptos que irão falhar
+	
+	// Parâmetros do Q-Learning
+	double rlAlpha = 0.1;      // Learning rate
+	double rlGamma = 0.9;      // Discount factor
+	double rlEpsilon = 0.1;    // Exploration rate
+	std::string qTablePath = "qtable.csv";  // Caminho da Q-Table
 
 	CommandLine cmd;
 	cmd.AddValue ("nNodes", "Number of node devices", nNodes);
 	cmd.AddValue ("run", "Run number", run);
 	cmd.AddValue ("failurePercentage", "Percentage of apt leaders to fail (0-100)", failurePercentage);
+	cmd.AddValue ("rlAlpha", "Q-Learning learning rate (0-1)", rlAlpha);
+	cmd.AddValue ("rlGamma", "Q-Learning discount factor (0-1)", rlGamma);
+	cmd.AddValue ("rlEpsilon", "Q-Learning exploration rate (0-1)", rlEpsilon);
+	cmd.AddValue ("qTablePath", "Path to Q-Table CSV file", qTablePath);
 	cmd.Parse (argc,argv);
 
 	NS_LOG_INFO("Creating " << nNodes << " nodes");
+	NS_LOG_INFO("RL Parameters: alpha=" << rlAlpha << ", gamma=" << rlGamma << ", epsilon=" << rlEpsilon);
+	NS_LOG_INFO("Q-Table path: " << qTablePath);
+	
 	NodeContainer nodes;
 	nodes.Create(nNodes);
 
@@ -135,6 +148,10 @@ int main (int argc, char *argv[]){
 
 	// Configurar porcentagem de falha no AP
 	apApplication->setFailurePercentage(failurePercentage);
+	
+	// Configurar parâmetros do Q-Learning
+	apApplication->setQLearningParams(rlAlpha, rlGamma, rlEpsilon);
+	apApplication->setQTableFilePath(qTablePath);
 
 	auto nodeAddrs = new std::vector<Ipv6Address>;
 

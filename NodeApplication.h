@@ -30,6 +30,12 @@ namespace nr2{
             double                                                  delay;
 
             std::vector<Ipv6Address>                                allNodesAddrs;
+            
+            // Lista de nós que me elegeram como líder
+            std::vector<Ipv6Address>*                               myFollowers;
+            
+            // Endereço do líder que eu elegi
+            Ipv6Address                                             myLeaderAddr;
 
         public:
             void setup(capabilitiesVector cap);
@@ -53,6 +59,7 @@ namespace nr2{
             int sendMessageHelper(MessageTypes type, Ipv6Address addr, uint8_t* buffer, int size);
             void sendBroadcastMessageHelper(MessageTypes type, uint8_t* buffer, int size);
             void performTask(string);
+            void notifyLeader(Ipv6Address leaderAddr);
 
             void nullFunction();
             void setAllNodesAddrs(std::vector<Ipv6Address>);
@@ -60,5 +67,14 @@ namespace nr2{
 
             // Método para obter tamanho do cluster (nós órfãos em caso de falha)
             int getClusterSize();
+            
+            // Getter para capacidades (usado na realocação)
+            capabilitiesVector* getCapabilities() { return this->capabilities; }
+            
+            // Getter para lista de membros do cluster (usado pelo AP)
+            std::map<Ipv6Address, int>* getClusterList() { return this->clusterList; }
+            
+            // Getter para lista de seguidores (nós que me elegeram líder)
+            std::vector<Ipv6Address>* getMyFollowers() { return this->myFollowers; }
     };
 }
