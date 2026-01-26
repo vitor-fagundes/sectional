@@ -20,7 +20,7 @@ namespace nr2{
             Address					m_node;				// Node's
             TypeId          		m_tid;          	// Type of the socket used
             Ipv6Address             GetNodeIpAddress();
-            int                     confirmationsSinceLastDispatch;
+            uint32_t                     confirmationsSinceLastDispatch;
             uint32_t                requiredQuorum;  // Número mínimo de agrupamentos que devem aceitar
 
         public:
