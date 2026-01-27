@@ -24,12 +24,18 @@ namespace nr2{
             Address					m_node;				// Node's
             TypeId          		m_tid;          	// Type of the socket used
             Ipv6Address             GetNodeIpAddress();
-            int                     confirmationsSinceLastDispatch;
-            uint32_t                requiredQuorum;  // Número mínimo de agrupamentos que devem aceitar
+            uint32_t                confirmationsSinceLastDispatch;
+            uint32_t                requiredQuorum;     // Número mínimo de agrupamentos que devem aceitar
 
             // Falhas
-            double                  failurePercentage;  // Porcentagem de líderes aptos que irão falhar
-            NodeContainer           networkNodes;       // Referência aos nós da rede
+            double                  failurePercentage;      // Porcentagem de líderes aptos que irão falhar
+            double                  failurePercentageMin;   // Porcentagem mínima (para modo aleatório)
+            double                  failurePercentageMax;   // Porcentagem máxima (para modo aleatório)
+            double                  failureTimeMin;         // Tempo mínimo para falha (segundos)
+            double                  failureTimeMax;         // Tempo máximo para falha (segundos)
+            double                  actualFailureTime;      // Tempo real da falha (calculado)
+            double                  actualFailurePercentage; // Porcentagem real da falha (calculada)
+            NodeContainer           networkNodes;           // Referência aos nós da rede
 
         public:
             void setup();
@@ -44,6 +50,8 @@ namespace nr2{
 
             // Falhas
             void setFailurePercentage(double percentage);
+            void setFailurePercentageRange(double min, double max);
+            void setFailureTimeRange(double min, double max);
             void setNodes(NodeContainer nodes);
             void triggerLeaderFailures();
     };

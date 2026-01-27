@@ -34,7 +34,12 @@ namespace nr2{
 
         this->confirmationsSinceLastDispatch = 0;
         this->failurePercentage = 0.0;
-        //generateTasks(600); // [TODO: Get time from elsewhere]
+        this->failurePercentageMin = 0.0;
+        this->failurePercentageMax = 0.0;
+        this->failureTimeMin = 310.0;  // Default: 310s
+        this->failureTimeMax = 310.0;  // Default: 310s (tempo fixo)
+        this->actualFailureTime = 0.0;
+        this->actualFailurePercentage = 0.0;
 
         for(auto task:*this->tasks){
             task->print();
@@ -59,9 +64,36 @@ namespace nr2{
         m_socket->SetRecvCallback(MakeCallback (&NodeAPApplication::recvCallback, this));
         Simulator::Schedule(Seconds(150), &NodeAPApplication::sendTaskToLeaders, this);
 
-        // Agendar falhas no tempo 310s
-        if(this->failurePercentage > 0.0){
-            Simulator::Schedule(Seconds(310), &NodeAPApplication::triggerLeaderFailures, this);
+        // Calcular tempo e porcentagem de falha (pode ser fixo ou aleatório)
+        std::random_device rd;
+        std::mt19937 gen(rd());
+
+        // Determinar tempo de falha
+        if(this->failureTimeMin < this->failureTimeMax){
+            // Tempo aleatório entre min e max
+            std::uniform_real_distribution<> timeDist(this->failureTimeMin, this->failureTimeMax);
+            this->actualFailureTime = timeDist(gen);
+        } else {
+            // Tempo fixo
+            this->actualFailureTime = this->failureTimeMin;
+        }
+
+        // Determinar porcentagem de falha
+        if(this->failurePercentageMin > 0 && this->failurePercentageMin < this->failurePercentageMax){
+            // Porcentagem aleatória entre min e max
+            std::uniform_real_distribution<> percDist(this->failurePercentageMin, this->failurePercentageMax);
+            this->actualFailurePercentage = percDist(gen);
+        } else if(this->failurePercentage > 0){
+            // Porcentagem fixa
+            this->actualFailurePercentage = this->failurePercentage;
+        } else {
+            this->actualFailurePercentage = 0.0;
+        }
+
+        // Agendar falhas se houver porcentagem configurada
+        if(this->actualFailurePercentage > 0.0){
+            NS_LOG_INFO("FAILURE_CONFIG: Tempo=" << this->actualFailureTime << "s, Porcentagem=" << this->actualFailurePercentage << "%");
+            Simulator::Schedule(Seconds(this->actualFailureTime), &NodeAPApplication::triggerLeaderFailures, this);
         }
     }
 
@@ -219,6 +251,16 @@ namespace nr2{
         this->failurePercentage = percentage;
     }
 
+    void NodeAPApplication::setFailurePercentageRange(double min, double max){
+        this->failurePercentageMin = min;
+        this->failurePercentageMax = max;
+    }
+
+    void NodeAPApplication::setFailureTimeRange(double min, double max){
+        this->failureTimeMin = min;
+        this->failureTimeMax = max;
+    }
+
     void NodeAPApplication::setNodes(NodeContainer nodes){
         this->networkNodes = nodes;
     }
@@ -231,14 +273,14 @@ namespace nr2{
 
         // Calcular quantos líderes irão falhar (arredondamento para cima)
         int totalAptLeaders = this->aptLeaders->size();
-        int leadersToFail = (int)std::ceil(totalAptLeaders * this->failurePercentage / 100.0);
+        int leadersToFail = (int)std::ceil(totalAptLeaders * this->actualFailurePercentage / 100.0);
         
         // Se a porcentagem > 0 mas o cálculo deu 0, forçar pelo menos 1
-        if(leadersToFail == 0 && this->failurePercentage > 0){
+        if(leadersToFail == 0 && this->actualFailurePercentage > 0){
             leadersToFail = 1;
         }
 
-        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalAptLeaders << " líderes aptos irão falhar (" << this->failurePercentage << "%)");
+        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalAptLeaders << " líderes aptos irão falhar (" << this->actualFailurePercentage << "%)");
 
         // Embaralhar lista de líderes aptos para seleção aleatória
         std::vector<Ipv6Address> shuffledLeaders(*this->aptLeaders);

@@ -37,12 +37,22 @@ int main (int argc, char *argv[]){
 
 	uint32_t nNodes = 3;
 	int run = 0;
-	double failurePercentage = 0.0; // Porcentagem de líderes aptos que irão falhar
+	
+	// Parâmetros de falha
+	double failurePercentage = 0.0;      // Porcentagem fixa (0 = sem falha)
+	double failurePercentageMin = 0.0;   // Porcentagem mínima (para modo aleatório)
+	double failurePercentageMax = 0.0;   // Porcentagem máxima (para modo aleatório)
+	double failureTimeMin = 310.0;       // Tempo mínimo para falha
+	double failureTimeMax = 310.0;       // Tempo máximo para falha (igual = fixo)
 
 	CommandLine cmd;
 	cmd.AddValue ("nNodes", "Number of node devices", nNodes);
 	cmd.AddValue ("run", "Run number", run);
 	cmd.AddValue ("failurePercentage", "Percentage of apt leaders to fail (0-100)", failurePercentage);
+	cmd.AddValue ("failurePercentageMin", "Minimum percentage for random failure (0-100)", failurePercentageMin);
+	cmd.AddValue ("failurePercentageMax", "Maximum percentage for random failure (0-100)", failurePercentageMax);
+	cmd.AddValue ("failureTimeMin", "Minimum time for failure in seconds", failureTimeMin);
+	cmd.AddValue ("failureTimeMax", "Maximum time for failure in seconds", failureTimeMax);
 	cmd.Parse (argc,argv);
 
 	NS_LOG_INFO("Creating " << nNodes << " nodes");
@@ -133,8 +143,10 @@ int main (int argc, char *argv[]){
 	apApplication->SetStartTime(Seconds(10.0));
 	apApplication->SetStopTime(Seconds(SIMTIME+10.0));
 
-	// Configurar porcentagem de falha no AP
+	// Configurar parâmetros de falha
 	apApplication->setFailurePercentage(failurePercentage);
+	apApplication->setFailurePercentageRange(failurePercentageMin, failurePercentageMax);
+	apApplication->setFailureTimeRange(failureTimeMin, failureTimeMax);
 
 	auto nodeAddrs = new std::vector<Ipv6Address>;
 
