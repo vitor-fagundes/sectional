@@ -37,7 +37,16 @@ int main (int argc, char *argv[]){
 
 	uint32_t nNodes = 3;
 	int run = 0;
-	double failurePercentage = 0.0; // Porcentagem de líderes aptos que irão falhar
+	
+	// Parâmetros de falha - Porcentagem
+	double failurePercentage = 0.0;     // Porcentagem fixa de líderes aptos que irão falhar
+	double failurePercentageMin = 0.0;  // Porcentagem mínima (modo aleatório)
+	double failurePercentageMax = 0.0;  // Porcentagem máxima (modo aleatório)
+	
+	// Parâmetros de falha - Tempo
+	double failureTime = 310.0;         // Tempo fixo de falha (padrão: 310s)
+	double failureTimeMin = 0.0;        // Tempo mínimo de falha (modo aleatório)
+	double failureTimeMax = 0.0;        // Tempo máximo de falha (modo aleatório)
 	
 	// Parâmetros do Q-Learning
 	double rlAlpha = 0.1;      // Learning rate
@@ -48,7 +57,18 @@ int main (int argc, char *argv[]){
 	CommandLine cmd;
 	cmd.AddValue ("nNodes", "Number of node devices", nNodes);
 	cmd.AddValue ("run", "Run number", run);
+	
+	// Parâmetros de falha - Porcentagem
 	cmd.AddValue ("failurePercentage", "Percentage of apt leaders to fail (0-100)", failurePercentage);
+	cmd.AddValue ("failurePercentageMin", "Minimum failure percentage for random mode (0-100)", failurePercentageMin);
+	cmd.AddValue ("failurePercentageMax", "Maximum failure percentage for random mode (0-100)", failurePercentageMax);
+	
+	// Parâmetros de falha - Tempo
+	cmd.AddValue ("failureTime", "Fixed time for leader failures in seconds (default: 310)", failureTime);
+	cmd.AddValue ("failureTimeMin", "Minimum failure time for random mode (seconds)", failureTimeMin);
+	cmd.AddValue ("failureTimeMax", "Maximum failure time for random mode (seconds)", failureTimeMax);
+	
+	// Parâmetros do Q-Learning
 	cmd.AddValue ("rlAlpha", "Q-Learning learning rate (0-1)", rlAlpha);
 	cmd.AddValue ("rlGamma", "Q-Learning discount factor (0-1)", rlGamma);
 	cmd.AddValue ("rlEpsilon", "Q-Learning exploration rate (0-1)", rlEpsilon);
@@ -56,6 +76,8 @@ int main (int argc, char *argv[]){
 	cmd.Parse (argc,argv);
 
 	NS_LOG_INFO("Creating " << nNodes << " nodes");
+	NS_LOG_INFO("Failure config: percentage=" << failurePercentage << "% (range: " << failurePercentageMin << "-" << failurePercentageMax << "%)");
+	NS_LOG_INFO("Failure config: time=" << failureTime << "s (range: " << failureTimeMin << "-" << failureTimeMax << "s)");
 	NS_LOG_INFO("RL Parameters: alpha=" << rlAlpha << ", gamma=" << rlGamma << ", epsilon=" << rlEpsilon);
 	NS_LOG_INFO("Q-Table path: " << qTablePath);
 	
@@ -146,8 +168,17 @@ int main (int argc, char *argv[]){
 	apApplication->SetStartTime(Seconds(10.0));
 	apApplication->SetStopTime(Seconds(SIMTIME+10.0));
 
-	// Configurar porcentagem de falha no AP
+	// Configurar parâmetros de falha - Porcentagem
 	apApplication->setFailurePercentage(failurePercentage);
+	if(failurePercentageMin > 0 || failurePercentageMax > 0){
+		apApplication->setFailurePercentageRange(failurePercentageMin, failurePercentageMax);
+	}
+	
+	// Configurar parâmetros de falha - Tempo
+	apApplication->setFailureTime(failureTime);
+	if(failureTimeMin > 0 || failureTimeMax > 0){
+		apApplication->setFailureTimeRange(failureTimeMin, failureTimeMax);
+	}
 	
 	// Configurar parâmetros do Q-Learning
 	apApplication->setQLearningParams(rlAlpha, rlGamma, rlEpsilon);

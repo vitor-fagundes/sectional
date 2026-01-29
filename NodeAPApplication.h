@@ -30,6 +30,13 @@ namespace nr2{
 
             // Falhas
             double                  failurePercentage;  // Porcentagem de líderes aptos que irão falhar
+            double                  failurePercentageMin;  // Porcentagem mínima (para modo aleatório)
+            double                  failurePercentageMax;  // Porcentagem máxima (para modo aleatório)
+            double                  failureTime;        // Tempo fixo de falha (segundos)
+            double                  failureTimeMin;     // Tempo mínimo de falha (para modo aleatório)
+            double                  failureTimeMax;     // Tempo máximo de falha (para modo aleatório)
+            double                  actualFailureTime;  // Tempo real de falha (após sorteio)
+            double                  actualFailurePercentage;  // Porcentagem real de falha (após sorteio)
             NodeContainer           networkNodes;       // Referência aos nós da rede
 
             // Mapeamento líder -> membros do cluster
@@ -61,8 +68,15 @@ namespace nr2{
 
             // Falhas
             void setFailurePercentage(double percentage);
+            void setFailurePercentageRange(double min, double max);
+            void setFailureTime(double time);
+            void setFailureTimeRange(double min, double max);
             void setNodes(NodeContainer nodes);
             void triggerLeaderFailures();
+            
+            // Getters para métricas (tempo e porcentagem reais usados)
+            double getActualFailureTime() { return this->actualFailureTime; }
+            double getActualFailurePercentage() { return this->actualFailurePercentage; }
             
             // Realocação com Q-Learning
             void reallocateOrphans();

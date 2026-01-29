@@ -44,7 +44,16 @@ namespace nr2{
         this->failedReallocations = 0;
 
         this->confirmationsSinceLastDispatch = 0;
+        
+        // Inicializar parâmetros de falha
         this->failurePercentage = 0.0;
+        this->failurePercentageMin = 0.0;
+        this->failurePercentageMax = 0.0;
+        this->failureTime = 310.0;  // Valor padrão: 310s
+        this->failureTimeMin = 0.0;
+        this->failureTimeMax = 0.0;
+        this->actualFailureTime = 0.0;
+        this->actualFailurePercentage = 0.0;
 
         for(auto task:*this->tasks){
             task->print();
@@ -72,9 +81,38 @@ namespace nr2{
         m_socket->SetRecvCallback(MakeCallback (&NodeAPApplication::recvCallback, this));
         Simulator::Schedule(Seconds(150), &NodeAPApplication::sendTaskToLeaders, this);
 
-        // Agendar falhas no tempo 310s
-        if(this->failurePercentage > 0.0){
-            Simulator::Schedule(Seconds(310), &NodeAPApplication::triggerLeaderFailures, this);
+        // Determinar tempo de falha (fixo ou aleatório)
+        double scheduledFailureTime = this->failureTime;  // Padrão: tempo fixo
+        
+        if(this->failureTimeMin > 0 && this->failureTimeMax > 0){
+            // Modo aleatório: sortear tempo entre min e max
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_real_distribution<double> timeDist(this->failureTimeMin, this->failureTimeMax);
+            scheduledFailureTime = timeDist(gen);
+            NS_LOG_INFO("FAILURE_CONFIG: Random time selected: " << scheduledFailureTime << "s (range: " << this->failureTimeMin << "-" << this->failureTimeMax << "s)");
+        }
+        
+        this->actualFailureTime = scheduledFailureTime;
+        
+        // Determinar porcentagem de falha (fixa ou aleatória)
+        double scheduledFailurePercentage = this->failurePercentage;  // Padrão: porcentagem fixa
+        
+        if(this->failurePercentageMin > 0 && this->failurePercentageMax > 0){
+            // Modo aleatório: sortear porcentagem entre min e max
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_real_distribution<double> percDist(this->failurePercentageMin, this->failurePercentageMax);
+            scheduledFailurePercentage = percDist(gen);
+            NS_LOG_INFO("FAILURE_CONFIG: Random percentage selected: " << scheduledFailurePercentage << "% (range: " << this->failurePercentageMin << "-" << this->failurePercentageMax << "%)");
+        }
+        
+        this->actualFailurePercentage = scheduledFailurePercentage;
+
+        // Agendar falhas se houver porcentagem configurada
+        if(scheduledFailurePercentage > 0.0){
+            NS_LOG_INFO("FAILURE_SCHEDULED: " << scheduledFailurePercentage << "% at " << scheduledFailureTime << "s");
+            Simulator::Schedule(Seconds(scheduledFailureTime), &NodeAPApplication::triggerLeaderFailures, this);
         }
     }
 
@@ -88,6 +126,9 @@ namespace nr2{
         // Log de métricas de realocação
         NS_LOG_INFO("RL_METRICS: Successful reallocations: " << this->successfulReallocations);
         NS_LOG_INFO("RL_METRICS: Failed reallocations: " << this->failedReallocations);
+        
+        // Log de parâmetros de falha usados (para extração posterior)
+        NS_LOG_INFO("FAILURE_ACTUAL: Time=" << this->actualFailureTime << "s Percentage=" << this->actualFailurePercentage << "%");
 
         stringstream out;
         for(auto task: *this->dispatchedTasks){
@@ -290,6 +331,20 @@ namespace nr2{
         this->failurePercentage = percentage;
     }
 
+    void NodeAPApplication::setFailurePercentageRange(double min, double max){
+        this->failurePercentageMin = min;
+        this->failurePercentageMax = max;
+    }
+
+    void NodeAPApplication::setFailureTime(double time){
+        this->failureTime = time;
+    }
+
+    void NodeAPApplication::setFailureTimeRange(double min, double max){
+        this->failureTimeMin = min;
+        this->failureTimeMax = max;
+    }
+
     void NodeAPApplication::setNodes(NodeContainer nodes){
         this->networkNodes = nodes;
     }
@@ -434,37 +489,69 @@ namespace nr2{
             NS_LOG_INFO("FAILURE: Nenhum líder apto para aplicar falha no tempo " << Simulator::Now().GetSeconds());
             return;
         }
-
-        // Calcular quantos líderes irão falhar (arredondamento para cima)
-        int totalAptLeaders = this->aptLeaders->size();
-        int leadersToFail = (int)std::ceil(totalAptLeaders * this->failurePercentage / 100.0);
+    
+        // NOVO: Filtrar líderes aptos que tenham mais de 1 membro no cluster
+        std::vector<Ipv6Address> eligibleLeaders;
+        for(auto& leader : *this->aptLeaders){
+            auto it = this->clusterMembers->find(leader);
+            if(it != this->clusterMembers->end()){
+                // Contar membros reais (excluindo o próprio líder)
+                int realMembers = 0;
+                for(auto& member : it->second){
+                    if(member != leader){
+                        realMembers++;
+                    }
+                }
+                
+                if(realMembers > 0){
+                    eligibleLeaders.push_back(leader);
+                    NS_LOG_INFO("FAILURE_ELIGIBLE: Leader " << leader << " with " << realMembers << " real followers");
+                } else {
+                    NS_LOG_INFO("FAILURE_SKIPPED: Leader " << leader << " has no real followers (cluster size = 1)");
+                }
+            }
+        }
+        
+        if(eligibleLeaders.empty()){
+            NS_LOG_INFO("FAILURE: Nenhum líder elegível (todos os clusters têm apenas 1 nó)");
+            return;
+        }
+    
+        // Usar a porcentagem real (já calculada no StartApplication)
+        double percentageToUse = this->actualFailurePercentage;
+    
+        // Calcular quantos líderes irão falhar baseado nos ELEGÍVEIS
+        int totalEligibleLeaders = eligibleLeaders.size();
+        int leadersToFail = (int)std::ceil(totalEligibleLeaders * percentageToUse / 100.0);
         
         // Se a porcentagem > 0 mas o cálculo deu 0, forçar pelo menos 1
-        if(leadersToFail == 0 && this->failurePercentage > 0){
+        if(leadersToFail == 0 && percentageToUse > 0){
             leadersToFail = 1;
         }
-
-        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalAptLeaders << " líderes aptos irão falhar (" << this->failurePercentage << "%)");
-
-        // Embaralhar lista de líderes aptos para seleção aleatória
-        std::vector<Ipv6Address> shuffledLeaders(*this->aptLeaders);
+    
+        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalEligibleLeaders << " líderes elegíveis irão falhar (" << percentageToUse << "%)");
+    
+        // Embaralhar lista de líderes ELEGÍVEIS para seleção aleatória
         std::random_device rd;
         std::mt19937 g(rd());
-        std::shuffle(shuffledLeaders.begin(), shuffledLeaders.end(), g);
-
+        std::shuffle(eligibleLeaders.begin(), eligibleLeaders.end(), g);
+    
         // Limpar lista de órfãos antes de processar novas falhas
         this->orphanedNodes->clear();
-
+    
         // Aplicar falha nos líderes selecionados
         for(int i = 0; i < leadersToFail; i++){
-            Ipv6Address leaderToFail = shuffledLeaders[i];
-
-            // Identificar os membros órfãos deste líder
+            Ipv6Address leaderToFail = eligibleLeaders[i];
+        
+            // Identificar os membros órfãos deste líder (EXCLUINDO o próprio líder)
             auto it = this->clusterMembers->find(leaderToFail);
             if(it != this->clusterMembers->end()){
                 for(auto& memberAddr : it->second){
-                    this->orphanedNodes->push_back(memberAddr);
-                    NS_LOG_INFO("ORPHAN: " << memberAddr << " (was member of " << leaderToFail << ")");
+                    // NÃO adicionar o próprio líder como órfão
+                    if(memberAddr != leaderToFail){
+                        this->orphanedNodes->push_back(memberAddr);
+                        NS_LOG_INFO("ORPHAN: " << memberAddr << " (was member of " << leaderToFail << ")");
+                    }
                 }
                 // Remover o cluster do mapa
                 this->clusterMembers->erase(it);
@@ -472,13 +559,13 @@ namespace nr2{
             
             // Remover capacidades do cluster
             this->clusterCapabilities->erase(leaderToFail);
-
+        
             // Encontrar o nó correspondente e desligá-lo
             for(uint32_t j = 0; j < this->networkNodes.GetN(); j++){
                 Ptr<Node> node = this->networkNodes.Get(j);
                 Ptr<Ipv6> ipv6 = node->GetObject<Ipv6>();
                 Ipv6Address nodeAddr = ipv6->GetAddress(1, 0).GetAddress();
-
+            
                 if(nodeAddr == leaderToFail){
                     // Parar a aplicação do nó (falha completa)
                     Ptr<Application> app = node->GetApplication(0);
@@ -494,7 +581,7 @@ namespace nr2{
                     break;
                 }
             }
-
+        
             // Remover líder das listas
             auto leaderIt = std::find(this->clusterLeaders->begin(), this->clusterLeaders->end(), leaderToFail);
             if(leaderIt != this->clusterLeaders->end()){
@@ -505,7 +592,7 @@ namespace nr2{
                 this->aptLeaders->erase(aptIt);
             }
         }
-
+    
         NS_LOG_INFO("ORPHAN_TOTAL: " << this->orphanedNodes->size() << " nós órfãos identificados");
         
         // Iniciar realocação com Q-Learning
