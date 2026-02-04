@@ -265,32 +265,68 @@ namespace nr2{
         this->networkNodes = nodes;
     }
 
-    void NodeAPApplication::triggerLeaderFailures(){
+void NodeAPApplication::triggerLeaderFailures(){
         if(this->aptLeaders->empty()){
             NS_LOG_INFO("FAILURE: Nenhum líder apto para aplicar falha no tempo " << Simulator::Now().GetSeconds());
             return;
         }
 
-        // Calcular quantos líderes irão falhar (arredondamento para cima)
-        int totalAptLeaders = this->aptLeaders->size();
-        int leadersToFail = (int)std::ceil(totalAptLeaders * this->actualFailurePercentage / 100.0);
+        // NOVO: Filtrar líderes aptos que tenham mais de 1 membro no cluster
+        // (clusters com apenas 1 nó não geram órfãos, então não faz sentido falhar)
+        std::vector<Ipv6Address> eligibleLeaders;
+        for(auto& leaderAddr : *this->aptLeaders){
+            // Encontrar o nó líder e verificar tamanho do cluster
+            for(uint32_t j = 0; j < this->networkNodes.GetN(); j++){
+                Ptr<Node> node = this->networkNodes.Get(j);
+                Ptr<Ipv6> ipv6 = node->GetObject<Ipv6>();
+                Ipv6Address nodeAddr = ipv6->GetAddress(1, 0).GetAddress();
+
+                if(nodeAddr == leaderAddr){
+                    Ptr<Application> app = node->GetApplication(0);
+                    if(app){
+                        Ptr<NodeApplication> nodeApp = DynamicCast<NodeApplication>(app);
+                        if(nodeApp){
+                            int clusterSize = nodeApp->getClusterSize();
+                            // Só considerar se cluster tem mais de 1 membro
+                            // (clusterSize inclui vizinhos similares, queremos pelo menos 2)
+                            if(clusterSize > 1){
+                                eligibleLeaders.push_back(leaderAddr);
+                                NS_LOG_INFO("FAILURE_ELIGIBLE: Leader " << leaderAddr << " with cluster size " << clusterSize);
+                            } else {
+                                NS_LOG_INFO("FAILURE_SKIPPED: Leader " << leaderAddr << " has cluster size " << clusterSize << " (too small)");
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if(eligibleLeaders.empty()){
+            NS_LOG_INFO("FAILURE: Nenhum líder elegível (todos os clusters têm apenas 1 nó) no tempo " << Simulator::Now().GetSeconds());
+            return;
+        }
+
+        // Calcular quantos líderes irão falhar baseado nos ELEGÍVEIS
+        int totalEligibleLeaders = eligibleLeaders.size();
+        int leadersToFail = (int)std::ceil(totalEligibleLeaders * this->actualFailurePercentage / 100.0);
         
         // Se a porcentagem > 0 mas o cálculo deu 0, forçar pelo menos 1
         if(leadersToFail == 0 && this->actualFailurePercentage > 0){
             leadersToFail = 1;
         }
 
-        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalAptLeaders << " líderes aptos irão falhar (" << this->actualFailurePercentage << "%)");
+        NS_LOG_INFO("FAILURE: " << leadersToFail << " de " << totalEligibleLeaders << " líderes elegíveis irão falhar (" << this->actualFailurePercentage << "%)");
+        NS_LOG_INFO("FAILURE: (Total aptos: " << this->aptLeaders->size() << ", Elegíveis após filtro: " << totalEligibleLeaders << ")");
 
-        // Embaralhar lista de líderes aptos para seleção aleatória
-        std::vector<Ipv6Address> shuffledLeaders(*this->aptLeaders);
+        // Embaralhar lista de líderes ELEGÍVEIS para seleção aleatória
         std::random_device rd;
         std::mt19937 g(rd());
-        std::shuffle(shuffledLeaders.begin(), shuffledLeaders.end(), g);
+        std::shuffle(eligibleLeaders.begin(), eligibleLeaders.end(), g);
 
         // Aplicar falha nos líderes selecionados
         for(int i = 0; i < leadersToFail; i++){
-            Ipv6Address leaderToFail = shuffledLeaders[i];
+            Ipv6Address leaderToFail = eligibleLeaders[i];
 
             // Encontrar o nó correspondente e desligá-lo
             for(uint32_t j = 0; j < this->networkNodes.GetN(); j++){
