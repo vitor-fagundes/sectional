@@ -36,12 +36,17 @@ namespace nr2{
         this->clusterCapabilities = new std::map<Ipv6Address, capabilitiesVector>;
         this->orphanedNodes = new std::vector<Ipv6Address>;
         
+        this->orphanGroups = new std::map<Ipv6Address, std::vector<Ipv6Address>>;  // RL2
+
         // Inicializar agente Q-Learning
         this->rlAgent = new QLearningAgent();
         
         // Contadores de métricas
         this->successfulReallocations = 0;
         this->failedReallocations = 0;
+
+        this->newClustersFormed = 0;      // RL2
+        this->nodesInNewClusters = 0;     // RL2
 
         this->confirmationsSinceLastDispatch = 0;
         
@@ -124,8 +129,10 @@ namespace nr2{
         this->rlAgent->printQTable();
         
         // Log de métricas de realocação
-        NS_LOG_INFO("RL_METRICS: Successful reallocations: " << this->successfulReallocations);
-        NS_LOG_INFO("RL_METRICS: Failed reallocations: " << this->failedReallocations);
+        NS_LOG_INFO("RL2_METRICS: New clusters formed: " << this->newClustersFormed);
+        NS_LOG_INFO("RL2_METRICS: Nodes in new clusters: " << this->nodesInNewClusters);
+        NS_LOG_INFO("RL2_METRICS: Successful reallocations: " << this->successfulReallocations);
+        NS_LOG_INFO("RL2_METRICS: Failed reallocations: " << this->failedReallocations);
         
         // Log de parâmetros de falha usados (para extração posterior)
         NS_LOG_INFO("FAILURE_ACTUAL: Time=" << this->actualFailureTime << "s Percentage=" << this->actualFailurePercentage << "%");
@@ -369,116 +376,106 @@ namespace nr2{
         return nullptr;
     }
 
-    double NodeAPApplication::calculateSimilarity(Ipv6Address orphanAddr, Ipv6Address leaderAddr){
-        // Obter capacidades do nó órfão
-        capabilitiesVector* orphanCaps = this->getNodeCapabilities(orphanAddr);
-        if(orphanCaps == nullptr){
-            return 0.0;
-        }
+    double NodeAPApplication::calculateSimilarityBetweenNodes(Ipv6Address node1, Ipv6Address node2){
+        capabilitiesVector* caps1 = this->getNodeCapabilities(node1);
+        if(caps1 == nullptr) return 0.0;
         
-        // Obter capacidades do cluster (líder)
-        auto it = this->clusterCapabilities->find(leaderAddr);
-        if(it == this->clusterCapabilities->end()){
-            return 0.0;
-        }
-        capabilitiesVector leaderCaps = it->second;
+        capabilitiesVector* caps2 = this->getNodeCapabilities(node2);
+        if(caps2 == nullptr) return 0.0;
         
-        // Calcular similaridade usando a função existente
-        double sim = capabilitiesSimilarity(orphanCaps, &leaderCaps);
-        
-        return sim;
+        return capabilitiesSimilarity(caps1, caps2);
     }
 
-    bool NodeAPApplication::addNodeToCluster(Ipv6Address orphanAddr, Ipv6Address leaderAddr){
-        // Adicionar órfão à lista de membros do cluster
-        auto it = this->clusterMembers->find(leaderAddr);
-        if(it != this->clusterMembers->end()){
-            it->second.push_back(orphanAddr);
-            NS_LOG_INFO("RL_REALLOC: Node " << orphanAddr << " added to cluster " << leaderAddr);
-            return true;
-        }
-        return false;
-    }
-
-    void NodeAPApplication::reallocateOrphans(){
-        NS_LOG_INFO("RL_REALLOC: Starting reallocation of " << this->orphanedNodes->size() << " orphans");
+    void NodeAPApplication::formNewClustersFromOrphans(){
+        NS_LOG_INFO("RL2_FORM_CLUSTERS: Starting new cluster formation from " << this->orphanGroups->size() << " orphan groups");
         
-        // Para cada nó órfão
-        std::vector<Ipv6Address> stillOrphaned;
-        
-        for(auto& orphanAddr : *this->orphanedNodes){
-            bool reallocated = false;
-            double bestSimilarity = 0.0;
-            Ipv6Address bestCluster;
+        // Para cada grupo de órfãos (por líder falho)
+        for(auto& group : *this->orphanGroups){
+            Ipv6Address failedLeader = group.first;
+            std::vector<Ipv6Address>& orphans = group.second;
             
-            // Encontrar o melhor cluster para este órfão
-            for(auto& leader : *this->clusterLeaders){
-                double similarity = this->calculateSimilarity(orphanAddr, leader);
-                
-                // Verificar se passa no threshold de realocação (0.85)
-                if(similarity >= REALLOCATION_THRESHOLD){
-                    if(similarity > bestSimilarity){
-                        bestSimilarity = similarity;
-                        bestCluster = leader;
-                    }
-                }
+            NS_LOG_INFO("RL2_GROUP: Processing " << orphans.size() << " orphans from failed leader " << failedLeader);
+            
+            if(orphans.size() < (size_t)MIN_NODES_FOR_NEW_CLUSTER){
+                NS_LOG_INFO("RL2_SKIP: Group too small (" << orphans.size() << " < " << MIN_NODES_FOR_NEW_CLUSTER << ")");
+                this->failedReallocations += orphans.size();
+                continue;
             }
             
-            // Se encontrou cluster válido, usar agente para decidir
-            if(bestSimilarity >= REALLOCATION_THRESHOLD){
-                // Converter similaridade em estado
-                State state = this->rlAgent->similarityToState(bestSimilarity);
+            // Usar Q-Learning para decidir quais nós incluir no novo cluster
+            std::vector<Ipv6Address> newClusterMembers;
+            
+            for(auto& orphan : orphans){
+                // Calcular similaridade média com outros órfãos do grupo
+                double avgSimilarity = 0.0;
+                int count = 0;
                 
-                // Agente escolhe ação
-                Action action = this->rlAgent->chooseAction(state);
+                for(auto& other : orphans){
+                    if(other != orphan){
+                        avgSimilarity += this->calculateSimilarityBetweenNodes(orphan, other);
+                        count++;
+                    }
+                }
                 
-                NS_LOG_INFO("RL_DECISION: Orphan " << orphanAddr 
-                            << " | Similarity: " << bestSimilarity 
-                            << " | State: " << state 
-                            << " | Action: " << action);
+                if(count > 0){
+                    avgSimilarity /= count;
+                }
                 
-                double reward = 0.0;
-                
-                if(action == ALLOCATE){
-                    // Tentar alocar
-                    if(this->addNodeToCluster(orphanAddr, bestCluster)){
-                        reallocated = true;
+                // Só considerar se passar no threshold
+                if(avgSimilarity >= REALLOCATION_THRESHOLD){
+                    // Converter similaridade em estado
+                    State state = this->rlAgent->similarityToState(avgSimilarity);
+                    
+                    // Agente escolhe ação
+                    Action action = this->rlAgent->chooseAction(state);
+                    
+                    NS_LOG_INFO("RL2_DECISION: Orphan " << orphan 
+                                << " | AvgSimilarity: " << avgSimilarity 
+                                << " | State: " << state 
+                                << " | Action: " << action);
+                    
+                    double reward = 0.0;
+                    
+                    if(action == ALLOCATE){
+                        newClusterMembers.push_back(orphan);
                         reward = REWARD_SUCCESS;
                         this->successfulReallocations++;
-                        NS_LOG_INFO("RL_REWARD: SUCCESS (+10) - Node " << orphanAddr << " reallocated to " << bestCluster);
+                        NS_LOG_INFO("RL2_REWARD: SUCCESS (+10) - Node " << orphan << " included in new cluster");
                     } else {
-                        reward = REWARD_INVALID;
-                        NS_LOG_INFO("RL_REWARD: INVALID (-10) - Failed to add node to cluster");
+                        reward = REWARD_ORPHAN;
+                        this->failedReallocations++;
+                        NS_LOG_INFO("RL2_REWARD: ORPHAN (-5) - Agent chose not to include node");
                     }
+                    
+                    // Atualizar Q-Table
+                    this->rlAgent->updateQTable(state, action, reward, state);
                 } else {
-                    // Agente escolheu não alocar
-                    reward = REWARD_ORPHAN;
-                    NS_LOG_INFO("RL_REWARD: ORPHAN (-5) - Agent chose not to allocate");
+                    NS_LOG_INFO("RL2_LOW_SIM: Orphan " << orphan << " has low avg similarity: " << avgSimilarity);
+                    this->failedReallocations++;
                 }
-                
-                // Atualizar Q-Table
-                // Próximo estado é o mesmo (simplificação para este cenário)
-                this->rlAgent->updateQTable(state, action, reward, state);
-                
-            } else {
-                // Nenhum cluster válido encontrado (similaridade < 0.85)
-                NS_LOG_INFO("RL_NO_MATCH: Orphan " << orphanAddr << " has no valid cluster (best similarity: " << bestSimilarity << ")");
             }
             
-            if(!reallocated){
-                stillOrphaned.push_back(orphanAddr);
-                this->failedReallocations++;
+            // Eleger líder para o novo cluster
+            if(newClusterMembers.size() >= (size_t)MIN_NODES_FOR_NEW_CLUSTER){
+                Ipv6Address newLeader = this->electLeaderForOrphanCluster(newClusterMembers);
+                
+                // Registrar novo cluster
+                this->registerNewCluster(newLeader, newClusterMembers);
+                
+                this->newClustersFormed++;
+                this->nodesInNewClusters += newClusterMembers.size();
+                
+                NS_LOG_INFO("RL2_CLUSTER_FORMED: New cluster with leader " << newLeader 
+                            << " and " << newClusterMembers.size() << " members");
+            } else {
+                NS_LOG_INFO("RL2_NO_CLUSTER: Not enough members to form cluster (" 
+                            << newClusterMembers.size() << " < " << MIN_NODES_FOR_NEW_CLUSTER << ")");
             }
         }
         
-        // Atualizar lista de órfãos
-        this->orphanedNodes->clear();
-        for(auto& addr : stillOrphaned){
-            this->orphanedNodes->push_back(addr);
-        }
-        
-        NS_LOG_INFO("RL_REALLOC_SUMMARY: " << this->successfulReallocations << " reallocated, " 
-                    << stillOrphaned.size() << " still orphaned");
+        NS_LOG_INFO("RL2_SUMMARY: " << this->newClustersFormed << " new clusters formed, "
+                    << this->nodesInNewClusters << " nodes in new clusters, "
+                    << this->failedReallocations << " still orphaned");
     }
 
     void NodeAPApplication::triggerLeaderFailures(){
@@ -538,23 +535,28 @@ namespace nr2{
     
         // Limpar lista de órfãos antes de processar novas falhas
         this->orphanedNodes->clear();
-    
+        this->orphanGroups->clear();  // RL2
+
         // Aplicar falha nos líderes selecionados
         for(int i = 0; i < leadersToFail; i++){
             Ipv6Address leaderToFail = eligibleLeaders[i];
         
             // Identificar os membros órfãos deste líder (EXCLUINDO o próprio líder)
             auto it = this->clusterMembers->find(leaderToFail);
+            // RL2: Vetor para guardar órfãos deste líder específico
+            std::vector<Ipv6Address> orphansFromThisLeader;
             if(it != this->clusterMembers->end()){
                 for(auto& memberAddr : it->second){
-                    // NÃO adicionar o próprio líder como órfão
                     if(memberAddr != leaderToFail){
                         this->orphanedNodes->push_back(memberAddr);
+                        orphansFromThisLeader.push_back(memberAddr);  // <-- só adiciona esta linha
                         NS_LOG_INFO("ORPHAN: " << memberAddr << " (was member of " << leaderToFail << ")");
                     }
                 }
                 // Remover o cluster do mapa
                 this->clusterMembers->erase(it);
+                // RL2: Guardar grupo de órfãos indexado pelo líder que falhou
+                (*this->orphanGroups)[leaderToFail] = orphansFromThisLeader;
             }
             
             // Remover capacidades do cluster
@@ -596,7 +598,7 @@ namespace nr2{
         NS_LOG_INFO("ORPHAN_TOTAL: " << this->orphanedNodes->size() << " nós órfãos identificados");
         
         // Iniciar realocação com Q-Learning
-        Simulator::Schedule(MilliSeconds(500), &NodeAPApplication::reallocateOrphans, this);
+        Simulator::Schedule(MilliSeconds(500), &NodeAPApplication::formNewClustersFromOrphans, this);    
     }
 
     void NodeAPApplication::setQLearningParams(double alpha, double gamma, double epsilon){
@@ -607,5 +609,98 @@ namespace nr2{
 
     void NodeAPApplication::setQTableFilePath(const std::string& filePath){
         this->rlAgent->setQTableFilePath(filePath);
+    }
+
+    int NodeAPApplication::getNodeNeighborCount(Ipv6Address nodeAddr){
+        for(uint32_t i = 0; i < this->networkNodes.GetN(); i++){
+            Ptr<Node> node = this->networkNodes.Get(i);
+            Ptr<Ipv6> ipv6 = node->GetObject<Ipv6>();
+            Ipv6Address addr = ipv6->GetAddress(1, 0).GetAddress();
+            
+            if(addr == nodeAddr){
+                Ptr<Application> app = node->GetApplication(0);
+                if(app){
+                    Ptr<NodeApplication> nodeApp = DynamicCast<NodeApplication>(app);
+                    if(nodeApp){
+                        return nodeApp->getNeighborCount();
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    Ipv6Address NodeAPApplication::electLeaderForOrphanCluster(std::vector<Ipv6Address>& members){
+        Ipv6Address bestLeader = members[0];
+        int maxNeighbors = this->getNodeNeighborCount(members[0]);
+        int maxCaps = 0;
+        
+        capabilitiesVector* caps = this->getNodeCapabilities(members[0]);
+        if(caps) maxCaps = caps->size();
+        
+        for(size_t i = 1; i < members.size(); i++){
+            int neighbors = this->getNodeNeighborCount(members[i]);
+            int capsSize = 0;
+            caps = this->getNodeCapabilities(members[i]);
+            if(caps) capsSize = caps->size();
+            
+            // Critério: mais vizinhos, desempate por mais capacidades
+            if(neighbors > maxNeighbors || (neighbors == maxNeighbors && capsSize > maxCaps)){
+                bestLeader = members[i];
+                maxNeighbors = neighbors;
+                maxCaps = capsSize;
+            }
+        }
+        
+        return bestLeader;
+    }
+
+    // ========== FUNÇÃO CORRIGIDA PARA RL2 ==========
+    void NodeAPApplication::registerNewCluster(Ipv6Address newLeader, std::vector<Ipv6Address>& members){
+        // 1. Registrar nas listas do AP
+        this->clusterLeaders->push_back(newLeader);
+        this->aptLeaders->push_back(newLeader);
+        
+        // 2. Registrar membros do cluster no AP
+        (*this->clusterMembers)[newLeader] = members;
+        
+        // 3. Registrar capacidades (usar as do líder)
+        capabilitiesVector* leaderCaps = this->getNodeCapabilities(newLeader);
+        if(leaderCaps){
+            (*this->clusterCapabilities)[newLeader] = *leaderCaps;
+        }
+        
+        // ========== CORREÇÃO PRINCIPAL ==========
+        // 4. Configurar o NÓ como líder (aumentar TX power, marcar isLeader, etc.)
+        for(uint32_t i = 0; i < this->networkNodes.GetN(); i++){
+            Ptr<Node> node = this->networkNodes.Get(i);
+            Ptr<Ipv6> ipv6 = node->GetObject<Ipv6>();
+            Ipv6Address addr = ipv6->GetAddress(1, 0).GetAddress();
+            
+            if(addr == newLeader){
+                Ptr<Application> app = node->GetApplication(0);
+                if(app){
+                    Ptr<NodeApplication> nodeApp = DynamicCast<NodeApplication>(app);
+                    if(nodeApp){
+                        // Chamar becomeLeader() para configurar o nó corretamente
+                        nodeApp->becomeLeader();
+                        
+                        // Adicionar todos os membros como seguidores do novo líder
+                        for(auto& memberAddr : members){
+                            if(memberAddr != newLeader){
+                                nodeApp->addFollower(memberAddr);
+                            }
+                        }
+                        
+                        NS_LOG_INFO("RL2_REGISTER: Node " << newLeader << " configured as leader with " 
+                                    << (members.size() - 1) << " followers");
+                    }
+                }
+                break;
+            }
+        }
+        
+        NS_LOG_INFO("RL2_REGISTER: New cluster registered with leader " << newLeader 
+                    << " and " << members.size() << " total members");
     }
 }

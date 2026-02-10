@@ -48,12 +48,18 @@ namespace nr2{
             // Lista de nós órfãos após falha
             std::vector<Ipv6Address>* orphanedNodes;
             
+            // RL2: Grupos de órfãos por líder falho
+            std::map<Ipv6Address, std::vector<Ipv6Address>>* orphanGroups;
+
             // Agente Q-Learning para realocação
             QLearningAgent* rlAgent;
             
             // Contadores para métricas
             int successfulReallocations;
             int failedReallocations;
+
+            int newClustersFormed;          // RL2
+            int nodesInNewClusters;         // RL2
 
         public:
             void setup();
@@ -78,12 +84,16 @@ namespace nr2{
             double getActualFailureTime() { return this->actualFailureTime; }
             double getActualFailurePercentage() { return this->actualFailurePercentage; }
             
-            // Realocação com Q-Learning
-            void reallocateOrphans();
-            double calculateSimilarity(Ipv6Address orphanAddr, Ipv6Address leaderAddr);
+            // RL2: Formação de novos clusters com órfãos
+            void formNewClustersFromOrphans();
+            double calculateSimilarityBetweenNodes(Ipv6Address node1, Ipv6Address node2);
             capabilitiesVector* getNodeCapabilities(Ipv6Address nodeAddr);
-            bool addNodeToCluster(Ipv6Address orphanAddr, Ipv6Address leaderAddr);
             
+            // RL2: Processo de clustering entre órfãos
+            Ipv6Address electLeaderForOrphanCluster(std::vector<Ipv6Address>& members);
+            void registerNewCluster(Ipv6Address newLeader, std::vector<Ipv6Address>& members);
+            int getNodeNeighborCount(Ipv6Address nodeAddr);
+
             // Obter membros do cluster diretamente do nó líder
             void fetchClusterMembers(Ipv6Address leaderAddr);
             

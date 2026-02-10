@@ -27,6 +27,12 @@ namespace nr2{
     const double REALLOCATION_THRESHOLD = 0.85;
     const double SIMILARITY_HIGH_THRESHOLD = 0.92;
 
+    // RL2: Threshold de similaridade para clustering (mesmo do cenário ótimo)
+    const double CLUSTERING_THRESHOLD = 0.95;
+    
+    // RL2: Mínimo de nós para formar um novo cluster
+    const int MIN_NODES_FOR_NEW_CLUSTER = 2;
+
     class QLearningAgent {
         private:
             // Q-Table: 2 estados x 2 ações

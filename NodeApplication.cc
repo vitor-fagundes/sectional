@@ -232,7 +232,6 @@ namespace nr2{
             
             // CORRIGIDO: Usar capabilitiesSimilarity (Equação 1 do artigo)
             // ao invés de capabilitiesSimilarityUFD
-            // CORRIGIDO: Removido parâmetro 'inter' que não era usado
             double sim = capabilitiesSimilarity(this->capabilities, &neighCap);
 
             //auto pair = make_pair(sim, neigh.first);
@@ -298,7 +297,6 @@ namespace nr2{
 
     void NodeApplication::selectAndRegisterLeader(){
         Ipv6Address leader = tiebreakLeader();
-        this->myLeaderAddr = leader;
 
         if( leader == this->GetNodeIpAddress()){
             NS_LOG_INFO("N: LS " << this->GetNodeIpAddress());
@@ -477,9 +475,22 @@ namespace nr2{
 
             NS_LOG_INFO("N: LA " << this->GetNodeIpAddress() << ", " << task->getTid() << ", " << Simulator::Now().GetSeconds());
 
-            for (auto node : *this->clusterList){
-                this->sendMessageHelper(MessageTypes::LeaderToCluster, node.first,
-                    (uint8_t*) sTask.c_str(), sTask.size()+1);
+            // RL2: Usar myFollowers ao invés de clusterList para novos clusters
+            // Para clusters originais, clusterList funciona
+            // Para novos clusters do RL, precisamos usar myFollowers
+            if(this->myFollowers && !this->myFollowers->empty()){
+                for (auto& followerAddr : *this->myFollowers){
+                    if(followerAddr != this->GetNodeIpAddress()){  // Não enviar para si mesmo
+                        this->sendMessageHelper(MessageTypes::LeaderToCluster, followerAddr,
+                            (uint8_t*) sTask.c_str(), sTask.size()+1);
+                    }
+                }
+            } else {
+                // Fallback para clusterList (clusters originais)
+                for (auto node : *this->clusterList){
+                    this->sendMessageHelper(MessageTypes::LeaderToCluster, node.first,
+                        (uint8_t*) sTask.c_str(), sTask.size()+1);
+                }
             }
         }
     }
@@ -505,5 +516,52 @@ namespace nr2{
             return this->clusterList->size();
         }
         return 0;
+    }
+
+    // ========== NOVOS MÉTODOS PARA RL2 ==========
+
+    void NodeApplication::becomeLeader(){
+        // Marcar como líder
+        this->isLeader = true;
+        
+        // Aumentar TX power para alcançar o AP
+        Ptr<LrWpanNetDevice> nodenetdev = DynamicCast<LrWpanNetDevice>(this->GetNode()->GetDevice(1));
+        auto phy = nodenetdev->GetPhy();
+        LrWpanSpectrumValueHelper svh;
+        Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity(10, 11);
+        //Ptr<SpectrumValue> psd = svh.CreateTxPowerSpectralDensity(-15, 11);
+        phy->SetTxPowerSpectralDensity(psd);
+        
+        // Configurar capacidades do cluster como as próprias capacidades
+        this->clusterCapabilities = this->capabilities;
+        
+        // Limpar lista de seguidores antiga e adicionar a si mesmo
+        if(this->myFollowers){
+            this->myFollowers->clear();
+        } else {
+            this->myFollowers = new std::vector<Ipv6Address>;
+        }
+        this->myFollowers->push_back(this->GetNodeIpAddress());
+        
+        NS_LOG_INFO("N: RL2_BECOME_LEADER " << this->GetNodeIpAddress() << " at " << Now().GetSeconds());
+    }
+
+    void NodeApplication::addFollower(Ipv6Address followerAddr){
+        if(!this->myFollowers){
+            this->myFollowers = new std::vector<Ipv6Address>;
+        }
+        
+        // Verificar se já não está na lista
+        auto it = std::find(this->myFollowers->begin(), this->myFollowers->end(), followerAddr);
+        if(it == this->myFollowers->end()){
+            this->myFollowers->push_back(followerAddr);
+            NS_LOG_INFO("N: RL2_ADD_FOLLOWER " << this->GetNodeIpAddress() << " added " << followerAddr);
+        }
+    }
+
+    void NodeApplication::clearFollowers(){
+        if(this->myFollowers){
+            this->myFollowers->clear();
+        }
     }
 }

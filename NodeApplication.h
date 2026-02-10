@@ -76,5 +76,21 @@ namespace nr2{
             
             // Getter para lista de seguidores (nós que me elegeram líder)
             std::vector<Ipv6Address>* getMyFollowers() { return this->myFollowers; }
+
+            int getNeighborCount() { return this->neighList->size(); }
+            
+            // ========== NOVOS MÉTODOS PARA RL2 ==========
+            
+            // Tornar este nó um líder (chamado pelo AP após formação de novo cluster)
+            void becomeLeader();
+            
+            // Adicionar um seguidor a este líder (chamado pelo AP)
+            void addFollower(Ipv6Address followerAddr);
+            
+            // Limpar lista de seguidores (para reset)
+            void clearFollowers();
+            
+            // Verificar se é líder
+            bool getIsLeader() { return this->isLeader; }
     };
 }
