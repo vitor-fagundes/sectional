@@ -5,17 +5,24 @@
 
 namespace nr2{
 
-    // Estados baseados na similaridade do nó órfão com cluster destino
-    // (threshold de realocação >= 0.85)
+    // Número de estados e ações
+    const int NUM_STATES = 4;
+    const int NUM_ACTIONS = 3;
+
+    // ========== RL3 MERGED: Estados baseados em DUAS similaridades ==========
+    // Similaridade com clusters existentes (RL1) E com outros órfãos (RL2)
     enum State {
-        SIMILARITY_MEDIUM = 0,  // 0.85 - 0.92
-        SIMILARITY_HIGH = 1     // >= 0.92
+        SIM_BOTH_HIGH = 0,          // Alta sim. com existentes E com órfãos
+        SIM_EXISTING_HIGH = 1,      // Alta sim. com existentes, baixa com órfãos
+        SIM_ORPHAN_HIGH = 2,        // Baixa sim. com existentes, alta com órfãos
+        SIM_BOTH_MEDIUM = 3         // Média sim. com ambos
     };
 
-    // Ações possíveis
+    // ========== RL3 MERGED: 3 ações possíveis ==========
     enum Action {
-        DO_NOT_ALLOCATE = 0,    // Deixar órfão
-        ALLOCATE = 1            // Alocar no cluster
+        DO_NOT_ALLOCATE = 0,        // Deixar órfão
+        REALLOCATE_EXISTING = 1,    // Realocar para cluster existente (RL1)
+        FORM_NEW_CLUSTER = 2        // Formar novo cluster com órfãos (RL2)
     };
 
     // Recompensas
@@ -27,16 +34,16 @@ namespace nr2{
     const double REALLOCATION_THRESHOLD = 0.85;
     const double SIMILARITY_HIGH_THRESHOLD = 0.92;
 
-    // RL2: Threshold de similaridade para clustering (mesmo do cenário ótimo)
+    // Threshold de similaridade para clustering (mesmo do cenário ótimo)
     const double CLUSTERING_THRESHOLD = 0.95;
     
-    // RL2: Mínimo de nós para formar um novo cluster
+    // Mínimo de nós para formar um novo cluster
     const int MIN_NODES_FOR_NEW_CLUSTER = 2;
 
     class QLearningAgent {
         private:
-            // Q-Table: 2 estados x 2 ações
-            double qTable[2][2];
+            // Q-Table: 4 estados x 3 ações
+            double qTable[NUM_STATES][NUM_ACTIONS];
             
             // Parâmetros do Q-Learning
             double alpha;       // Learning rate (taxa de aprendizado)
@@ -63,8 +70,8 @@ namespace nr2{
             // Atualizar Q-Table após receber recompensa
             void updateQTable(State state, Action action, double reward, State nextState);
             
-            // Converter similaridade em estado discreto
-            State similarityToState(double similarity);
+            // RL3: Determinar estado composto a partir de DUAS similaridades
+            State determineState(double simExisting, double simOrphan);
             
             // Persistência da Q-Table
             void saveQTable(const std::string& filePath);

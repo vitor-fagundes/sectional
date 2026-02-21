@@ -48,7 +48,7 @@ namespace nr2{
             // Lista de nós órfãos após falha
             std::vector<Ipv6Address>* orphanedNodes;
             
-            // RL2: Grupos de órfãos por líder falho
+            // Grupos de órfãos por líder falho
             std::map<Ipv6Address, std::vector<Ipv6Address>>* orphanGroups;
 
             // Agente Q-Learning para realocação
@@ -57,9 +57,9 @@ namespace nr2{
             // Contadores para métricas
             int successfulReallocations;
             int failedReallocations;
-
-            int newClustersFormed;          // RL2
-            int nodesInNewClusters;         // RL2
+            int reallocatedToExisting;      // RL1: nós realocados para clusters existentes
+            int newClustersFormed;          // RL2: novos clusters formados
+            int nodesInNewClusters;         // RL2: nós em novos clusters
 
         public:
             void setup();
@@ -84,9 +84,17 @@ namespace nr2{
             double getActualFailureTime() { return this->actualFailureTime; }
             double getActualFailurePercentage() { return this->actualFailurePercentage; }
             
+            // ========== RL3 MERGED: Processamento unificado de órfãos ==========
+            void processOrphans();
+            
+            // RL1: Cálculo de similaridade com clusters existentes
+            double calculateSimilarityWithCluster(Ipv6Address orphan, Ipv6Address clusterLeader);
+            double getBestExistingSimilarity(Ipv6Address orphan, Ipv6Address& bestCluster);
+            void addNodeToCluster(Ipv6Address orphan, Ipv6Address clusterLeader);
+            
             // RL2: Formação de novos clusters com órfãos
-            void formNewClustersFromOrphans();
             double calculateSimilarityBetweenNodes(Ipv6Address node1, Ipv6Address node2);
+            double getAvgOrphanSimilarity(Ipv6Address orphan, std::vector<Ipv6Address>& orphanGroup);
             capabilitiesVector* getNodeCapabilities(Ipv6Address nodeAddr);
             
             // RL2: Processo de clustering entre órfãos

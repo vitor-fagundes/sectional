@@ -41,8 +41,8 @@ namespace nr2{
 
     void QLearningAgent::initializeQTable(){
         // Inicializar todos os valores com 0
-        for(int s = 0; s < 2; s++){
-            for(int a = 0; a < 2; a++){
+        for(int s = 0; s < NUM_STATES; s++){
+            for(int a = 0; a < NUM_ACTIONS; a++){
                 qTable[s][a] = 0.0;
             }
         }
@@ -54,20 +54,35 @@ namespace nr2{
         double randomValue = dist(this->rng);
         
         if(randomValue < this->epsilon){
-            // Exploração: escolher ação aleatória
-            std::uniform_int_distribution<int> actionDist(0, 1);
+            // Exploração: escolher ação aleatória entre as 3
+            std::uniform_int_distribution<int> actionDist(0, NUM_ACTIONS - 1);
             return static_cast<Action>(actionDist(this->rng));
         } else {
             // Exploitation: escolher melhor ação baseado na Q-Table
-            if(qTable[state][ALLOCATE] > qTable[state][DO_NOT_ALLOCATE]){
-                return ALLOCATE;
-            } else if(qTable[state][DO_NOT_ALLOCATE] > qTable[state][ALLOCATE]){
-                return DO_NOT_ALLOCATE;
-            } else {
-                // Empate: escolher aleatoriamente
-                std::uniform_int_distribution<int> actionDist(0, 1);
-                return static_cast<Action>(actionDist(this->rng));
+            int bestAction = 0;
+            double bestValue = qTable[state][0];
+            
+            for(int a = 1; a < NUM_ACTIONS; a++){
+                if(qTable[state][a] > bestValue){
+                    bestValue = qTable[state][a];
+                    bestAction = a;
+                }
             }
+            
+            // Verificar empates e resolver aleatoriamente
+            std::vector<int> tiedActions;
+            for(int a = 0; a < NUM_ACTIONS; a++){
+                if(qTable[state][a] == bestValue){
+                    tiedActions.push_back(a);
+                }
+            }
+            
+            if(tiedActions.size() > 1){
+                std::uniform_int_distribution<int> tieDist(0, tiedActions.size() - 1);
+                bestAction = tiedActions[tieDist(this->rng)];
+            }
+            
+            return static_cast<Action>(bestAction);
         }
     }
 
@@ -76,7 +91,12 @@ namespace nr2{
         // Q(s,a) = Q(s,a) + α * [R + γ * max(Q(s',a')) - Q(s,a)]
         
         // Encontrar max Q(s', a') para o próximo estado
-        double maxNextQ = std::max(qTable[nextState][ALLOCATE], qTable[nextState][DO_NOT_ALLOCATE]);
+        double maxNextQ = qTable[nextState][0];
+        for(int a = 1; a < NUM_ACTIONS; a++){
+            if(qTable[nextState][a] > maxNextQ){
+                maxNextQ = qTable[nextState][a];
+            }
+        }
         
         // Atualizar Q-value
         double currentQ = qTable[state][action];
@@ -85,12 +105,19 @@ namespace nr2{
         qTable[state][action] = newQ;
     }
 
-    State QLearningAgent::similarityToState(double similarity){
-        // Converter similaridade contínua em estado discreto
-        if(similarity >= SIMILARITY_HIGH_THRESHOLD){
-            return SIMILARITY_HIGH;
+    State QLearningAgent::determineState(double simExisting, double simOrphan){
+        // RL3: Determinar estado composto a partir de DUAS similaridades
+        bool existingHigh = (simExisting >= SIMILARITY_HIGH_THRESHOLD);
+        bool orphanHigh = (simOrphan >= SIMILARITY_HIGH_THRESHOLD);
+        
+        if(existingHigh && orphanHigh){
+            return SIM_BOTH_HIGH;
+        } else if(existingHigh && !orphanHigh){
+            return SIM_EXISTING_HIGH;
+        } else if(!existingHigh && orphanHigh){
+            return SIM_ORPHAN_HIGH;
         } else {
-            return SIMILARITY_MEDIUM;
+            return SIM_BOTH_MEDIUM;
         }
     }
 
@@ -100,8 +127,8 @@ namespace nr2{
         if(file.is_open()){
             // Formato CSV: state,action,qvalue
             file << "state,action,qvalue\n";
-            for(int s = 0; s < 2; s++){
-                for(int a = 0; a < 2; a++){
+            for(int s = 0; s < NUM_STATES; s++){
+                for(int a = 0; a < NUM_ACTIONS; a++){
                     file << s << "," << a << "," << qTable[s][a] << "\n";
                 }
             }
@@ -132,7 +159,7 @@ namespace nr2{
                 action = std::stoi(line.substr(pos1 + 1, pos2 - pos1 - 1));
                 qvalue = std::stod(line.substr(pos2 + 1));
                 
-                if(state >= 0 && state < 2 && action >= 0 && action < 2){
+                if(state >= 0 && state < NUM_STATES && action >= 0 && action < NUM_ACTIONS){
                     qTable[state][action] = qvalue;
                 }
             }
@@ -153,13 +180,21 @@ namespace nr2{
     }
 
     void QLearningAgent::printQTable(){
-        std::cout << "=== Q-Table ===" << std::endl;
-        std::cout << "State\\Action\t| DO_NOT_ALLOCATE\t| ALLOCATE" << std::endl;
-        std::cout << "SIMILARITY_MEDIUM\t| " << qTable[SIMILARITY_MEDIUM][DO_NOT_ALLOCATE] 
-                  << "\t\t\t| " << qTable[SIMILARITY_MEDIUM][ALLOCATE] << std::endl;
-        std::cout << "SIMILARITY_HIGH\t\t| " << qTable[SIMILARITY_HIGH][DO_NOT_ALLOCATE] 
-                  << "\t\t\t| " << qTable[SIMILARITY_HIGH][ALLOCATE] << std::endl;
-        std::cout << "===============" << std::endl;
+        std::cout << "=== Q-Table (RL3 Merged: 4 states x 3 actions) ===" << std::endl;
+        std::cout << "State\\Action\t\t| DO_NOT_ALLOC\t| REALLOC_EXIST\t| FORM_NEW_CLUST" << std::endl;
+        std::cout << "SIM_BOTH_HIGH\t\t| " << qTable[SIM_BOTH_HIGH][DO_NOT_ALLOCATE] 
+                  << "\t| " << qTable[SIM_BOTH_HIGH][REALLOCATE_EXISTING] 
+                  << "\t| " << qTable[SIM_BOTH_HIGH][FORM_NEW_CLUSTER] << std::endl;
+        std::cout << "SIM_EXISTING_HIGH\t| " << qTable[SIM_EXISTING_HIGH][DO_NOT_ALLOCATE] 
+                  << "\t| " << qTable[SIM_EXISTING_HIGH][REALLOCATE_EXISTING] 
+                  << "\t| " << qTable[SIM_EXISTING_HIGH][FORM_NEW_CLUSTER] << std::endl;
+        std::cout << "SIM_ORPHAN_HIGH\t\t| " << qTable[SIM_ORPHAN_HIGH][DO_NOT_ALLOCATE] 
+                  << "\t| " << qTable[SIM_ORPHAN_HIGH][REALLOCATE_EXISTING] 
+                  << "\t| " << qTable[SIM_ORPHAN_HIGH][FORM_NEW_CLUSTER] << std::endl;
+        std::cout << "SIM_BOTH_MEDIUM\t\t| " << qTable[SIM_BOTH_MEDIUM][DO_NOT_ALLOCATE] 
+                  << "\t| " << qTable[SIM_BOTH_MEDIUM][REALLOCATE_EXISTING] 
+                  << "\t| " << qTable[SIM_BOTH_MEDIUM][FORM_NEW_CLUSTER] << std::endl;
+        std::cout << "=================================================" << std::endl;
     }
 
     void QLearningAgent::setAlpha(double alpha){
