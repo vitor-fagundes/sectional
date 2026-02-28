@@ -128,12 +128,12 @@ namespace nr2{
         this->rlAgent->saveQTable("qtable.csv");
         this->rlAgent->printQTable();
         
-        // Log de métricas RL3
-        NS_LOG_INFO("RL3_METRICS: Reallocated to existing clusters: " << this->reallocatedToExisting);
-        NS_LOG_INFO("RL3_METRICS: New clusters formed: " << this->newClustersFormed);
-        NS_LOG_INFO("RL3_METRICS: Nodes in new clusters: " << this->nodesInNewClusters);
-        NS_LOG_INFO("RL3_METRICS: Successful reallocations: " << this->successfulReallocations);
-        NS_LOG_INFO("RL3_METRICS: Failed reallocations: " << this->failedReallocations);
+        // Log de métricas RL3.1
+        NS_LOG_INFO("RL3.1_METRICS: Reallocated to existing clusters: " << this->reallocatedToExisting);
+        NS_LOG_INFO("RL3.1_METRICS: New clusters formed: " << this->newClustersFormed);
+        NS_LOG_INFO("RL3.1_METRICS: Nodes in new clusters: " << this->nodesInNewClusters);
+        NS_LOG_INFO("RL3.1_METRICS: Successful reallocations: " << this->successfulReallocations);
+        NS_LOG_INFO("RL3.1_METRICS: Failed reallocations: " << this->failedReallocations);
         
         // Log de parâmetros de falha usados (para extração posterior)
         NS_LOG_INFO("FAILURE_ACTUAL: Time=" << this->actualFailureTime << "s Percentage=" << this->actualFailurePercentage << "%");
@@ -453,9 +453,9 @@ namespace nr2{
         return avgSim;
     }
 
-    // ========== RL3 MERGED: Processamento unificado de órfãos ==========
+    // ========== RL3.1: Processamento unificado com recompensa inteligente ==========
     void NodeAPApplication::processOrphans(){
-        NS_LOG_INFO("RL3_PROCESS: Starting unified orphan processing for " 
+        NS_LOG_INFO("RL3.1_PROCESS: Starting context-aware orphan processing for " 
                     << this->orphanedNodes->size() << " orphans from " 
                     << this->orphanGroups->size() << " groups");
         
@@ -463,8 +463,28 @@ namespace nr2{
         for(auto& group : *this->orphanGroups){
             Ipv6Address failedLeader = group.first;
             std::vector<Ipv6Address>& orphans = group.second;
+            int groupSize = orphans.size();
             
-            NS_LOG_INFO("RL3_GROUP: Processing " << orphans.size() << " orphans from failed leader " << failedLeader);
+            NS_LOG_INFO("RL3.1_GROUP: Processing " << groupSize << " orphans from failed leader " << failedLeader);
+            
+            // ========== Opção 3: Calcular bônus/penalidade do grupo ANTES do loop ==========
+            double bonusFormNewCluster = 0.0;
+            double bonusReallocExisting = 0.0;
+            
+            if(groupSize > 10){
+                bonusFormNewCluster = BONUS_FORM_LARGE_GROUP;       // +3.0 incentiva formar cluster
+                bonusReallocExisting = PENALTY_REALLOC_LARGE_GROUP; // -2.0 desincentiva fragmentar
+                NS_LOG_INFO("RL3.1_BONUS: Large group (" << groupSize << " nodes) - bonus FORM=" 
+                            << bonusFormNewCluster << " bonus REALLOC=" << bonusReallocExisting);
+            } else if(groupSize <= 5){
+                bonusFormNewCluster = PENALTY_FORM_SMALL_GROUP;     // -3.0 desincentiva cluster pequeno
+                bonusReallocExisting = BONUS_REALLOC_SMALL_GROUP;   // +3.0 incentiva realocar
+                NS_LOG_INFO("RL3.1_BONUS: Small group (" << groupSize << " nodes) - bonus FORM=" 
+                            << bonusFormNewCluster << " bonus REALLOC=" << bonusReallocExisting);
+            } else {
+                // Grupo 6-10: sem bônus, agente decide livremente
+                NS_LOG_INFO("RL3.1_BONUS: Medium group (" << groupSize << " nodes) - no bonus applied");
+            }
             
             // Candidatos para novo cluster (ação FORM_NEW_CLUSTER)
             std::vector<Ipv6Address> newClusterCandidates;
@@ -480,7 +500,7 @@ namespace nr2{
                 
                 // Verificar se pelo menos uma similaridade passa no threshold
                 if(simExisting < REALLOCATION_THRESHOLD && simOrphan < REALLOCATION_THRESHOLD){
-                    NS_LOG_INFO("RL3_LOW_SIM: Orphan " << orphan 
+                    NS_LOG_INFO("RL3.1_LOW_SIM: Orphan " << orphan 
                                 << " | SimExisting: " << simExisting 
                                 << " | SimOrphan: " << simOrphan 
                                 << " (both below threshold)");
@@ -494,11 +514,12 @@ namespace nr2{
                 // Agente escolhe ação (3 possibilidades)
                 Action action = this->rlAgent->chooseAction(state);
                 
-                NS_LOG_INFO("RL3_DECISION: Orphan " << orphan 
+                NS_LOG_INFO("RL3.1_DECISION: Orphan " << orphan 
                             << " | SimExisting: " << simExisting 
                             << " | SimOrphan: " << simOrphan 
                             << " | State: " << state 
-                            << " | Action: " << action);
+                            << " | Action: " << action
+                            << " | GroupSize: " << groupSize);
                 
                 double reward = 0.0;
                 
@@ -506,34 +527,66 @@ namespace nr2{
                     // RL1: Realocar para cluster existente
                     if(simExisting >= REALLOCATION_THRESHOLD){
                         this->addNodeToCluster(orphan, bestExistingCluster);
-                        reward = REWARD_SUCCESS;
+                        
+                        // ========== Opção 2: Recompensa proporcional à qualidade ==========
+                        double capFactor = CAP_FACTOR_LOW;  // default: simExisting < 0.90
+                        if(simExisting >= 0.95){
+                            capFactor = CAP_FACTOR_HIGH;
+                        } else if(simExisting >= 0.90){
+                            capFactor = CAP_FACTOR_MEDIUM;
+                        }
+                        reward = REWARD_SUCCESS * simExisting * capFactor;
+                        
+                        // ========== Opção 3: Adicionar bônus do grupo ==========
+                        reward += bonusReallocExisting;
+                        
                         this->successfulReallocations++;
                         this->reallocatedToExisting++;
-                        NS_LOG_INFO("RL3_REWARD: SUCCESS (+10) - Reallocated " << orphan << " to existing cluster " << bestExistingCluster);
+                        NS_LOG_INFO("RL3.1_REWARD: REALLOC +" << reward 
+                                    << " (base=10 * sim=" << simExisting 
+                                    << " * capFactor=" << capFactor 
+                                    << " + groupBonus=" << bonusReallocExisting 
+                                    << ") - Reallocated " << orphan << " to " << bestExistingCluster);
                     } else {
                         // Tentou realocar mas similaridade insuficiente
                         reward = REWARD_INVALID;
                         this->failedReallocations++;
-                        NS_LOG_INFO("RL3_REWARD: INVALID (-10) - SimExisting too low for reallocation");
+                        NS_LOG_INFO("RL3.1_REWARD: INVALID (-10) - SimExisting too low for reallocation");
                     }
                 } else if(action == FORM_NEW_CLUSTER){
                     // RL2: Marcar para formar novo cluster
                     if(simOrphan >= REALLOCATION_THRESHOLD){
                         newClusterCandidates.push_back(orphan);
-                        reward = REWARD_SUCCESS;
+                        
+                        // ========== Opção 2: Recompensa proporcional à qualidade ==========
+                        double sizeFactor = SIZE_FACTOR_SMALL;  // default: grupo <= 5
+                        if(groupSize > 10){
+                            sizeFactor = SIZE_FACTOR_LARGE;
+                        } else if(groupSize >= 6){
+                            sizeFactor = SIZE_FACTOR_MEDIUM;
+                        }
+                        reward = REWARD_SUCCESS * simOrphan * sizeFactor;
+                        
+                        // ========== Opção 3: Adicionar bônus do grupo ==========
+                        reward += bonusFormNewCluster;
+                        
                         this->successfulReallocations++;
-                        NS_LOG_INFO("RL3_REWARD: SUCCESS (+10) - Node " << orphan << " marked for new cluster");
+                        NS_LOG_INFO("RL3.1_REWARD: FORM_NEW +" << reward 
+                                    << " (base=10 * simOrphan=" << simOrphan 
+                                    << " * sizeFactor=" << sizeFactor 
+                                    << " + groupBonus=" << bonusFormNewCluster 
+                                    << ") - Node " << orphan << " marked for new cluster");
                     } else {
                         // Tentou formar cluster mas similaridade com órfãos insuficiente
                         reward = REWARD_INVALID;
                         this->failedReallocations++;
-                        NS_LOG_INFO("RL3_REWARD: INVALID (-10) - SimOrphan too low for new cluster");
+                        NS_LOG_INFO("RL3.1_REWARD: INVALID (-10) - SimOrphan too low for new cluster");
                     }
                 } else {
                     // DO_NOT_ALLOCATE
                     reward = REWARD_ORPHAN;
                     this->failedReallocations++;
-                    NS_LOG_INFO("RL3_REWARD: ORPHAN (-5) - Agent chose not to allocate");
+                    NS_LOG_INFO("RL3.1_REWARD: ORPHAN (-5) - Agent chose not to allocate");
                 }
                 
                 // Atualizar Q-Table
@@ -548,10 +601,10 @@ namespace nr2{
                 this->newClustersFormed++;
                 this->nodesInNewClusters += newClusterCandidates.size();
                 
-                NS_LOG_INFO("RL3_CLUSTER_FORMED: New cluster with leader " << newLeader 
+                NS_LOG_INFO("RL3.1_CLUSTER_FORMED: New cluster with leader " << newLeader 
                             << " and " << newClusterCandidates.size() << " members");
             } else if(!newClusterCandidates.empty()) {
-                NS_LOG_INFO("RL3_NO_CLUSTER: Not enough candidates (" 
+                NS_LOG_INFO("RL3.1_NO_CLUSTER: Not enough candidates (" 
                             << newClusterCandidates.size() << " < " << MIN_NODES_FOR_NEW_CLUSTER << ")");
                 // Candidatos que não conseguiram formar cluster ficam órfãos
                 this->failedReallocations += newClusterCandidates.size();
@@ -559,7 +612,7 @@ namespace nr2{
             }
         }
         
-        NS_LOG_INFO("RL3_SUMMARY: " << this->reallocatedToExisting << " reallocated to existing, "
+        NS_LOG_INFO("RL3.1_SUMMARY: " << this->reallocatedToExisting << " reallocated to existing, "
                     << this->newClustersFormed << " new clusters formed, "
                     << this->nodesInNewClusters << " nodes in new clusters, "
                     << this->failedReallocations << " still orphaned");

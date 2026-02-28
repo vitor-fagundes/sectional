@@ -40,6 +40,24 @@ namespace nr2{
     // Mínimo de nós para formar um novo cluster
     const int MIN_NODES_FOR_NEW_CLUSTER = 2;
 
+    // ========== RL3.1: Recompensa Inteligente (Opção 2) ==========
+    // Fatores de tamanho para FORM_NEW_CLUSTER
+    const double SIZE_FACTOR_LARGE = 1.0;     // grupo > 10 nós
+    const double SIZE_FACTOR_MEDIUM = 0.7;    // grupo 6-10 nós
+    const double SIZE_FACTOR_SMALL = 0.3;     // grupo <= 5 nós
+    
+    // Fatores de capacidade para REALLOC_EXISTING
+    const double CAP_FACTOR_HIGH = 1.0;       // simExisting >= 0.95
+    const double CAP_FACTOR_MEDIUM = 0.8;     // simExisting >= 0.90
+    const double CAP_FACTOR_LOW = 0.4;        // simExisting < 0.90
+
+    // ========== RL3.1: Consciência do Tamanho do Grupo (Opção 3) ==========
+    // Bônus/penalidade baseado no tamanho do grupo
+    const double BONUS_FORM_LARGE_GROUP = 3.0;    // grupo > 10: incentiva formar cluster
+    const double PENALTY_REALLOC_LARGE_GROUP = -2.0;  // grupo > 10: desincentiva fragmentar
+    const double PENALTY_FORM_SMALL_GROUP = -3.0;  // grupo <= 5: desincentiva cluster pequeno
+    const double BONUS_REALLOC_SMALL_GROUP = 3.0;  // grupo <= 5: incentiva realocar
+
     class QLearningAgent {
         private:
             // Q-Table: 4 estados x 3 ações
