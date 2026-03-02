@@ -222,20 +222,21 @@ def parse_output_file(filepath, approach):
     # ── Failures / Orphans ──
     orphan_total_m = re.search(r'ORPHAN_TOTAL: (\d+)', content)
     orphan_events = re.findall(r'ORPHAN: (\S+) \(was member of (\S+)\)', content)
-    failure_events = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+)', content)
-    # with-fail has a different format
-    failure_events_wf = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+) - (\d+) nós órfãos', content)
+    # Time can be integer (320) or decimal (331.173) depending on scenario
+    failure_events = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*)', content)
+    failure_events_wf = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*) - (\d+) nós órfãos', content)
 
-    metrics['num_leader_failures'] = len(failure_events) + len(failure_events_wf)
+    # failure_events also matches wf lines (superset), so subtract wf count to avoid double-counting
+    metrics['num_leader_failures'] = max(len(failure_events), len(failure_events_wf))
     metrics['orphan_total'] = int(orphan_total_m.group(1)) if orphan_total_m else len(orphan_events)
-    # with-fail may report orphans differently
+    # with-fail reports orphans inline in FAILURE message
     if metrics['orphan_total'] == 0 and failure_events_wf:
         metrics['orphan_total'] = sum(int(n) for _, _, n in failure_events_wf)
     metrics['orphan_percentage'] = metrics['orphan_total'] / 200.0
 
-    failure_times = [int(t) for _, t in failure_events]
-    if not failure_times:
-        failure_times = [int(t) for _, t, _ in failure_events_wf]
+    failure_times = [float(t) for _, t in failure_events]
+    if not failure_times and failure_events_wf:
+        failure_times = [float(t) for _, t, _ in failure_events_wf]
     metrics['failure_time'] = failure_times[0] if failure_times else float('nan')
 
     # ── RL metrics ──
@@ -499,6 +500,7 @@ def generate_summary(df_clust, df_tasks, df_realloc, df_resil):
                     row['realloc_success_mean'] = round(r['rl_successful_realloc'].mean(), 2)
                     row['realloc_success_ci95'] = round(ci95(r['rl_successful_realloc']), 2)
                     row['realloc_rate_mean'] = round(r['realloc_rate'].mean(), 4)
+                    row['realloc_rate_median'] = round(r['realloc_rate'].median(), 4)
                     row['realloc_rate_ci95'] = round(ci95(r['realloc_rate']), 4)
                     row['new_clusters_mean'] = round(r['rl_new_clusters'].mean(), 2)
                     row['new_clusters_ci95'] = round(ci95(r['rl_new_clusters']), 2)
