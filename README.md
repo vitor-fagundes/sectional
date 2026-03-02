@@ -2,9 +2,9 @@
 
 **Agrupamentos Resilientes em Redes IIoT Baseados em Q-Learning para Realocação Adaptativa de Nós Órfãos**
 
-> Projeto de dissertação de mestrado — Vítor Fagundes  
+> Projeto acadêmico — Vítor Fagundes  
 > Orientadores: Prof. Aldri Santos (UFMG) e Carlos Pedroso (UFPR)  
-> Universidade Federal de Minas Gerais (UFMG) / CCSC
+> Universidade Federal de Minas Gerais (UFMG) / DCC
 
 ---
 
