@@ -205,6 +205,7 @@ Cada sub-cenário mantém **Q-Tables independentes** para evitar contaminação 
 | `sectional-rl1`          | RL1: Realocação para clusters existentes           |
 | `sectional-rl2`          | RL2: Formação de novos clusters entre órfãos       |
 | `sectional-rl3`          | RL3: Abordagem unificada (RL1 + RL2)              |
+| `sectional-rl3.1`       | RL3.1: RL3 com recompensa sensível ao contexto     |
 
 ---
 
