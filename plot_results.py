@@ -24,6 +24,7 @@ APPROACH_LABELS = {
     'rl1': 'RL1',
     'rl2': 'RL2',
     'rl3': 'RL3',
+    'rl3.1': 'RL3.1',
 }
 APPROACH_COLORS = {
     'optimal': '#2196F3',
@@ -31,8 +32,9 @@ APPROACH_COLORS = {
     'rl1': '#FF9800',
     'rl2': '#4CAF50',
     'rl3': '#9C27B0',
+    'rl3.1': '#00BCD4',
 }
-APPROACH_ORDER = ['optimal', 'with-fail', 'rl1', 'rl2', 'rl3']
+APPROACH_ORDER = ['optimal', 'with-fail', 'rl1', 'rl2', 'rl3', 'rl3.1']
 
 SCENARIO_SHORT = {
     'cenario1_tempo_fixo/310s_10percent': 'C1-10%',
@@ -108,10 +110,10 @@ def plot_task_success_rate(df_tasks):
 def plot_realloc_rate(df_realloc):
     """Bar chart: RL reallocation rate per scenario (only RL approaches)."""
     fail_scenarios = [s for s in SCENARIO_SHORT if s != 'sem_falha']
-    rl_approaches = ['rl1', 'rl2', 'rl3']
+    rl_approaches = ['rl1', 'rl2', 'rl3', 'rl3.1']
     df = df_realloc[df_realloc['approach'].isin(rl_approaches)]
 
-    fig, ax = plt.subplots(figsize=(14, 6))
+    fig, ax = plt.subplots(figsize=(16, 6))
     x = np.arange(len(fail_scenarios))
     width = 0.8 / len(rl_approaches)
 
@@ -147,7 +149,7 @@ def plot_realloc_rate(df_realloc):
 
 def plot_orphans_boxplot(df_clust):
     """Boxplot: orphan count distribution per approach (all scenarios combined)."""
-    fail_approaches = ['with-fail', 'rl1', 'rl2', 'rl3']
+    fail_approaches = ['with-fail', 'rl1', 'rl2', 'rl3', 'rl3.1']
     df = df_clust[df_clust['approach'].isin(fail_approaches) & (df_clust['orphan_total'] > 0)]
 
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -171,7 +173,7 @@ def plot_qtable_heatmap(df_qtable):
     """Heatmap of average Q-values per approach (cenario1, 10%)."""
     scenario = 'cenario1_tempo_fixo/310s_10percent'
 
-    for approach in ['rl1', 'rl2', 'rl3']:
+    for approach in ['rl1', 'rl2', 'rl3', 'rl3.1']:
         mask = (df_qtable['approach'] == approach) & (df_qtable['scenario'] == scenario)
         df = df_qtable[mask]
         if len(df) == 0:
@@ -240,7 +242,7 @@ def plot_comparison_summary(df_summary):
     ax1.grid(axis='y', alpha=0.3)
 
     # Right: realloc rate (RL only)
-    rl_approaches = ['rl1', 'rl2', 'rl3']
+    rl_approaches = ['rl1', 'rl2', 'rl3', 'rl3.1']
     rl_df = df[df['approach'].isin(rl_approaches)]
     width_r = 0.8 / len(rl_approaches)
     for i, a in enumerate(rl_approaches):

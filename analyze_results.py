@@ -9,6 +9,7 @@ Abordagens:
   - rl1: RL v1 — realoca para cluster existente ou não aloca
   - rl2: RL v2 — forma novos clusters a partir de órfãos
   - rl3: RL v3 — 3 ações: não alocar, realocar existente, formar novo cluster
+  - rl3.1: RL v3.1 — RL3 com processamento context-aware de órfãos e bônus por grupo
 
 Cada abordagem RL tem 7 sub-cenários × 35 rodadas.
 """
@@ -38,7 +39,7 @@ def discover_scenarios():
     """Discover all approach/scenario combinations available."""
     scenarios = []
 
-    # RL approaches (rl1, rl2, rl3)
+    # RL approaches (rl1, rl2, rl3) — structure: approach/cenarioX_*/200_nodes/config/
     for approach in ["rl1", "rl2", "rl3"]:
         approach_dir = BASE_DIR / approach
         if not approach_dir.exists():
@@ -62,6 +63,49 @@ def discover_scenarios():
                         "apstats_dir": sub_dir / "APStats",
                         "qtables_dir": sub_dir / "qtables",
                         "tasks_dir": sub_dir / "tasks",
+                    })
+
+    # RL3.1 — different dir structure: rl3.1/cenario1-310s/10percent/ (no 200_nodes level)
+    # Config dir names like "10percent" need to be mapped to match other approaches ("310s_10percent")
+    rl31_dir = BASE_DIR / "rl3.1"
+    if rl31_dir.exists():
+        rl31_scenario_mapping = {
+            "cenario1-310s": "cenario1_tempo_fixo",
+            "cenario2-180-600s": "cenario2_tempo_aleatorio",
+            "cenario3-full-random": "cenario3_tudo_aleatorio",
+        }
+        rl31_config_mapping = {
+            "cenario1-310s": {
+                "10percent": "310s_10percent",
+                "20percent": "310s_20percent",
+                "30percent": "310s_30percent",
+            },
+            "cenario2-180-600s": {
+                "10percent": "180-600s_10percent",
+                "20percent": "180-600s_20percent",
+                "30percent": "180-600s_30percent",
+            },
+            "cenario3-full-random": {},  # already matches: "180-600s_10-30percent"
+        }
+        for cenario_dir in sorted(rl31_dir.iterdir()):
+            if not cenario_dir.is_dir():
+                continue
+            cenario_mapped = rl31_scenario_mapping.get(cenario_dir.name, cenario_dir.name)
+            config_map = rl31_config_mapping.get(cenario_dir.name, {})
+            for config_dir in sorted(cenario_dir.iterdir()):
+                if not config_dir.is_dir():
+                    continue
+                outputs_dir = config_dir / "outputs"
+                if outputs_dir.exists():
+                    config_mapped = config_map.get(config_dir.name, config_dir.name)
+                    scenario_name = f"{cenario_mapped}/{config_mapped}"
+                    scenarios.append({
+                        "approach": "rl3.1",
+                        "scenario": scenario_name,
+                        "outputs_dir": outputs_dir,
+                        "apstats_dir": config_dir / "APStats",
+                        "qtables_dir": config_dir / "qtables",
+                        "tasks_dir": config_dir / "tasks",
                     })
 
     # with-fail (different directory structure)
@@ -231,8 +275,23 @@ def parse_output_file(filepath, approach):
             metrics['rl_realloc_existing'] = int(m_s.group(1))
             metrics['rl_new_clusters'] = int(m_s.group(2))
 
+    elif approach == 'rl3.1':
+        m = re.search(r'RL3\.1_METRICS: Successful reallocations: (\d+)', content)
+        if m: metrics['rl_successful_realloc'] = int(m.group(1))
+        m = re.search(r'RL3\.1_METRICS: Failed reallocations: (\d+)', content)
+        if m: metrics['rl_failed_realloc'] = int(m.group(1))
+        m = re.search(r'RL3\.1_METRICS: Reallocated to existing clusters: (\d+)', content)
+        if m: metrics['rl_realloc_existing'] = int(m.group(1))
+        m_s = re.search(
+            r'RL3\.1_SUMMARY: (\d+) reallocated to existing, (\d+) new clusters formed, (\d+) nodes in new clusters, (\d+) still orphaned',
+            content
+        )
+        if m_s:
+            metrics['rl_realloc_existing'] = int(m_s.group(1))
+            metrics['rl_new_clusters'] = int(m_s.group(2))
+
     # Reallocation rate
-    if metrics['orphan_total'] > 0 and approach in ('rl1', 'rl2', 'rl3'):
+    if metrics['orphan_total'] > 0 and approach in ('rl1', 'rl2', 'rl3', 'rl3.1'):
         metrics['realloc_rate'] = metrics['rl_successful_realloc'] / metrics['orphan_total']
     elif approach == 'with-fail':
         metrics['realloc_rate'] = 0.0
@@ -346,7 +405,10 @@ def analyze_all():
                 if qt_file.exists():
                     qt_df = parse_qtable_file(qt_file)
                     if qt_df is not None:
-                        if approach == 'rl3':
+                        if approach == 'rl3.1':
+                            state_names = {0: 'SIM_BOTH_HIGH', 1: 'SIM_EXISTING_HIGH', 2: 'SIM_ORPHAN_HIGH', 3: 'SIM_BOTH_MEDIUM'}
+                            action_names = {0: 'DO_NOT_ALLOC', 1: 'REALLOC_EXIST', 2: 'FORM_NEW_CLUST'}
+                        elif approach == 'rl3':
                             state_names = {0: 'SIM_ORPHAN_HIGH', 1: 'SIM_EXISTING_HIGH', 2: 'SIM_ORPHAN_LOW', 3: 'SIM_EXISTING_LOW'}
                             action_names = {0: 'DO_NOT_ALLOC', 1: 'REALLOC_EXIST', 2: 'FORM_NEW_CLUST'}
                         elif approach == 'rl2':
@@ -486,7 +548,7 @@ def print_summary(df_clust, df_tasks, df_realloc):
             print(f"    Taxa de sucesso:        {sr:.2%} ± {sr_ci:.2%}")
             print(f"    Latência média aceite:  {lat:.4f}s")
 
-            if approach in ('rl1', 'rl2', 'rl3') and len(df_realloc) > 0:
+            if approach in ('rl1', 'rl2', 'rl3', 'rl3.1') and len(df_realloc) > 0:
                 mr = (df_realloc['approach'] == approach) & (df_realloc['scenario'] == scenario)
                 r = df_realloc[mr]
                 if len(r) > 0:
