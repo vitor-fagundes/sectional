@@ -10,6 +10,7 @@ Abordagens:
   - rl2: RL v2 — forma novos clusters a partir de órfãos
   - rl3: RL v3 — 3 ações: não alocar, realocar existente, formar novo cluster
   - rl3.1: RL v3.1 — RL3 com processamento context-aware de órfãos e bônus por grupo
+  - intuitive: Aprendizado Intuitivo — framework dual-system (S1/S2) com QI adaptativo
 
 Cada abordagem RL tem 7 sub-cenários × 35 rodadas.
 """
@@ -39,8 +40,8 @@ def discover_scenarios():
     """Discover all approach/scenario combinations available."""
     scenarios = []
 
-    # RL approaches (rl1, rl2, rl3) — structure: approach/cenarioX_*/200_nodes/config/
-    for approach in ["rl1", "rl2", "rl3"]:
+    # RL approaches + intuitive — structure: approach/cenarioX_*/200_nodes/config/
+    for approach in ["rl1", "rl2", "rl3", "intuitive"]:
         approach_dir = BASE_DIR / approach
         if not approach_dir.exists():
             continue
@@ -291,8 +292,26 @@ def parse_output_file(filepath, approach):
             metrics['rl_realloc_existing'] = int(m_s.group(1))
             metrics['rl_new_clusters'] = int(m_s.group(2))
 
+    elif approach == 'intuitive':
+        # INTUITIVE_ACTION: Realocados X, não realocados Y
+        realloc_lines = re.findall(r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', content)
+        realloc_existing = sum(int(r) for r, _ in realloc_lines)
+        not_reallocated = sum(int(nr) for _, nr in realloc_lines)
+        # INTUITIVE_ACTION: Novo cluster formado - Líder X com N seguidores
+        new_cluster_followers = re.findall(
+            r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', content
+        )
+        new_cluster_nodes = sum(int(n) for n in new_cluster_followers)
+        new_cluster_summary = re.findall(
+            r'INTUITIVE_ACTION: (\d+) novos clusters formados', content
+        )
+        metrics['rl_realloc_existing'] = realloc_existing
+        metrics['rl_new_clusters'] = sum(int(n) for n in new_cluster_summary)
+        metrics['rl_successful_realloc'] = realloc_existing + new_cluster_nodes
+        metrics['rl_failed_realloc'] = not_reallocated
+
     # Reallocation rate
-    if metrics['orphan_total'] > 0 and approach in ('rl1', 'rl2', 'rl3', 'rl3.1'):
+    if metrics['orphan_total'] > 0 and approach in ('rl1', 'rl2', 'rl3', 'rl3.1', 'intuitive'):
         metrics['realloc_rate'] = metrics['rl_successful_realloc'] / metrics['orphan_total']
     elif approach == 'with-fail':
         metrics['realloc_rate'] = 0.0
@@ -550,7 +569,7 @@ def print_summary(df_clust, df_tasks, df_realloc):
             print(f"    Taxa de sucesso:        {sr:.2%} ± {sr_ci:.2%}")
             print(f"    Latência média aceite:  {lat:.4f}s")
 
-            if approach in ('rl1', 'rl2', 'rl3', 'rl3.1') and len(df_realloc) > 0:
+            if approach in ('rl1', 'rl2', 'rl3', 'rl3.1', 'intuitive') and len(df_realloc) > 0:
                 mr = (df_realloc['approach'] == approach) & (df_realloc['scenario'] == scenario)
                 r = df_realloc[mr]
                 if len(r) > 0:
