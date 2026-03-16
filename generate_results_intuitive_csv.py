@@ -108,25 +108,39 @@ def parse_output_file(filepath):
     m['porcentagem_falha'] = float(pct_match.group(1)) if pct_match else float('nan')
 
     # ── Intuitive actions ──
-    # Reallocated to existing
-    realloc_lines = re.findall(r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', content)
-    m['realocados_existente'] = sum(int(r) for r, _ in realloc_lines)
-    m['nao_realocados'] = sum(int(nr) for _, nr in realloc_lines)
-
-    # New clusters formed
-    new_cluster_followers = re.findall(
-        r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', content
+    # Reallocated to existing — use ONLY the FIRST effective summary
+    # (subsequent cycles may repeat the action but find no orphans)
+    m['realocados_existente'] = 0
+    m['nao_realocados'] = 0
+    realloc_lines = re.finditer(
+        r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', content
     )
-    m['realocados_novo_cluster'] = sum(int(n) for n in new_cluster_followers)
-    # Count how many new clusters (not nodes)
-    new_cluster_summary = re.findall(
+    for rm in realloc_lines:
+        r, nr = int(rm.group(1)), int(rm.group(2))
+        if r > 0 or nr > 0:
+            m['realocados_existente'] = r
+            m['nao_realocados'] = nr
+            break  # only first effective occurrence
+
+    # New clusters formed — use summary line if available, else individual lines
+    # Each new cluster's leader is also an orphan that was reallocated
+    recluster_summaries = re.findall(
         r'INTUITIVE_ACTION: (\d+) novos clusters formados de (\d+) órfãos', content
     )
-    m['novos_clusters_formados'] = sum(int(n) for n, _ in new_cluster_summary)
+    if recluster_summaries:
+        m['novos_clusters_formados'] = sum(int(n) for n, _ in recluster_summaries)
+        m['realocados_novo_cluster'] = sum(int(o) for _, o in recluster_summaries)
+    else:
+        # Fallback: sum individual "Novo cluster formado" lines (followers + 1 leader each)
+        new_cluster_followers = re.findall(
+            r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', content
+        )
+        m['novos_clusters_formados'] = len(new_cluster_followers)
+        m['realocados_novo_cluster'] = sum(int(n) + 1 for n in new_cluster_followers)
 
     m['total_realocados'] = m['realocados_existente'] + m['realocados_novo_cluster']
     m['taxa_realocacao'] = round(
-        (m['total_realocados'] / m['nos_orfaos']) * 100, 2
+        min(1.0, m['total_realocados'] / m['nos_orfaos']) * 100, 2
     ) if m['nos_orfaos'] > 0 else 0.0
 
     # ── INTUITIVE decision cycles ──
@@ -256,6 +270,36 @@ def process_scenario(scenario_dir):
             writer.writerow(row)
 
     print(f"  {csv_path.name}: {len(rows)} rows")
+
+    # ── Post-generation validation ──
+    warnings = 0
+    for row in rows:
+        run = row['rodada']
+        rate = row.get('taxa_realocacao', 0)
+        realloc = row.get('total_realocados', 0)
+        orphans = row.get('nos_orfaos', 0)
+        failures = row.get('lideres_falharam', 0)
+
+        if rate > 100.0:
+            print(f"  WARNING run {run}: taxa_realocacao={rate}% > 100%")
+            warnings += 1
+        if orphans > 0 and realloc > orphans:
+            print(f"  WARNING run {run}: total_realocados={realloc} > nos_orfaos={orphans}")
+            warnings += 1
+        if '10percent' in config_name and failures > 2:
+            print(f"  WARNING run {run}: {failures} leader failures in 10% scenario (expected 1-2)")
+            warnings += 1
+        if failures > 0 and orphans == 0:
+            print(f"  WARNING run {run}: {failures} failures but 0 orphans")
+            warnings += 1
+        if failures > 0 and orphans > 0 and orphans / failures > 40:
+            print(f"  WARNING run {run}: {orphans} orphans / {failures} failures = "
+                  f"{orphans/failures:.0f} orphans/leader (unusually high)")
+            warnings += 1
+
+    if warnings:
+        print(f"  ⚠ {warnings} validation warning(s) found")
+
     return csv_path
 
 
