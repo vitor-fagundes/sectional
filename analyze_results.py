@@ -293,26 +293,78 @@ def parse_output_file(filepath, approach):
             metrics['rl_new_clusters'] = int(m_s.group(2))
 
     elif approach == 'intuitive':
-        # INTUITIVE_ACTION: Realocados X, não realocados Y
-        realloc_lines = re.findall(r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', content)
-        realloc_existing = sum(int(r) for r, _ in realloc_lines)
-        not_reallocated = sum(int(nr) for _, nr in realloc_lines)
-        # INTUITIVE_ACTION: Novo cluster formado - Líder X com N seguidores
-        new_cluster_followers = re.findall(
-            r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', content
-        )
-        new_cluster_nodes = sum(int(n) for n in new_cluster_followers)
-        new_cluster_summary = re.findall(
-            r'INTUITIVE_ACTION: (\d+) novos clusters formados', content
-        )
+        # Stateful line-by-line parsing to avoid double-counting when
+        # RECLUSTER and REALLOCATE both act on the same orphan pool.
+        lines = content.split('\n')
+        remaining_orphans = metrics['orphan_total']
+        realloc_existing = 0
+        not_reallocated = 0
+        recluster_nodes = 0
+        recluster_count = 0
+        first_realloc_found = False
+        pending_cluster_followers = []
+
+        for line in lines:
+            # Recluster summary (preferred)
+            ncs = re.search(
+                r'INTUITIVE_ACTION: (\d+) novos clusters formados de (\d+) órfãos', line
+            )
+            if ncs:
+                n_clusters = int(ncs.group(1))
+                n_orphans = int(ncs.group(2))
+                counted = min(n_orphans, max(0, remaining_orphans))
+                recluster_nodes += counted
+                recluster_count += n_clusters
+                remaining_orphans -= counted
+                pending_cluster_followers = []
+                continue
+
+            # Individual new cluster line (fallback)
+            ncm = re.search(
+                r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', line
+            )
+            if ncm:
+                pending_cluster_followers.append(int(ncm.group(1)))
+                continue
+
+            # Flush pending cluster lines on new cycle
+            if pending_cluster_followers and re.match(r'INTUITIVE:', line):
+                n_from = sum(f + 1 for f in pending_cluster_followers)
+                counted = min(n_from, max(0, remaining_orphans))
+                recluster_nodes += counted
+                recluster_count += len(pending_cluster_followers)
+                remaining_orphans -= counted
+                pending_cluster_followers = []
+
+            # Reallocate summary — first effective only
+            if not first_realloc_found:
+                rm = re.search(
+                    r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', line
+                )
+                if rm:
+                    r, nr = int(rm.group(1)), int(rm.group(2))
+                    if r > 0 or nr > 0:
+                        counted = min(r, max(0, remaining_orphans))
+                        realloc_existing = counted
+                        not_reallocated = nr
+                        remaining_orphans -= counted
+                        first_realloc_found = True
+
+        # Flush remaining pending cluster lines at EOF
+        if pending_cluster_followers:
+            n_from = sum(f + 1 for f in pending_cluster_followers)
+            counted = min(n_from, max(0, remaining_orphans))
+            recluster_nodes += counted
+            recluster_count += len(pending_cluster_followers)
+
         metrics['rl_realloc_existing'] = realloc_existing
-        metrics['rl_new_clusters'] = sum(int(n) for n in new_cluster_summary)
-        metrics['rl_successful_realloc'] = realloc_existing + new_cluster_nodes
+        metrics['rl_new_clusters'] = recluster_count
+        metrics['rl_successful_realloc'] = realloc_existing + recluster_nodes
         metrics['rl_failed_realloc'] = not_reallocated
 
-    # Reallocation rate
+    # Reallocation rate (clamped to [0, 1])
     if metrics['orphan_total'] > 0 and approach in ('rl1', 'rl2', 'rl3', 'rl3.1', 'intuitive'):
-        metrics['realloc_rate'] = metrics['rl_successful_realloc'] / metrics['orphan_total']
+        metrics['realloc_rate'] = min(1.0, metrics['rl_successful_realloc'] / metrics['orphan_total'])
     elif approach == 'with-fail':
         metrics['realloc_rate'] = 0.0
 

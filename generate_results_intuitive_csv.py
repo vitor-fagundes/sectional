@@ -107,38 +107,76 @@ def parse_output_file(filepath):
     pct_match = re.search(r'FAILURE: \d+ de \d+ líderes elegíveis irão falhar \(([\d.]+)%\)', content)
     m['porcentagem_falha'] = float(pct_match.group(1)) if pct_match else float('nan')
 
-    # ── Intuitive actions ──
-    # Reallocated to existing — use ONLY the FIRST effective summary
-    # (subsequent cycles may repeat the action but find no orphans)
-    m['realocados_existente'] = 0
-    m['nao_realocados'] = 0
-    realloc_lines = re.finditer(
-        r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', content
-    )
-    for rm in realloc_lines:
-        r, nr = int(rm.group(1)), int(rm.group(2))
-        if r > 0 or nr > 0:
-            m['realocados_existente'] = r
-            m['nao_realocados'] = nr
-            break  # only first effective occurrence
+    # ── Intuitive actions (stateful line-by-line parsing) ──
+    # Track remaining orphans to avoid double-counting when RECLUSTER and
+    # REALLOCATE both act on the same orphan pool in successive cycles.
+    lines = content.split('\n')
+    remaining_orphans = m['nos_orfaos']
+    realocados_existente = 0
+    nao_realocados = 0
+    realocados_novo_cluster = 0
+    novos_clusters_formados = 0
+    first_realloc_found = False
+    pending_cluster_followers = []
 
-    # New clusters formed — use summary line if available, else individual lines
-    # Each new cluster's leader is also an orphan that was reallocated
-    recluster_summaries = re.findall(
-        r'INTUITIVE_ACTION: (\d+) novos clusters formados de (\d+) órfãos', content
-    )
-    if recluster_summaries:
-        m['novos_clusters_formados'] = sum(int(n) for n, _ in recluster_summaries)
-        m['realocados_novo_cluster'] = sum(int(o) for _, o in recluster_summaries)
-    else:
-        # Fallback: sum individual "Novo cluster formado" lines (followers + 1 leader each)
-        new_cluster_followers = re.findall(
-            r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', content
+    for line in lines:
+        # Recluster summary line (preferred over individual lines)
+        ncs = re.search(
+            r'INTUITIVE_ACTION: (\d+) novos clusters formados de (\d+) órfãos', line
         )
-        m['novos_clusters_formados'] = len(new_cluster_followers)
-        m['realocados_novo_cluster'] = sum(int(n) + 1 for n in new_cluster_followers)
+        if ncs:
+            n_clusters = int(ncs.group(1))
+            n_orphans = int(ncs.group(2))
+            counted = min(n_orphans, max(0, remaining_orphans))
+            realocados_novo_cluster += counted
+            novos_clusters_formados += n_clusters
+            remaining_orphans -= counted
+            pending_cluster_followers = []  # summary supersedes individual lines
+            continue
 
-    m['total_realocados'] = m['realocados_existente'] + m['realocados_novo_cluster']
+        # Individual new cluster line (fallback when no summary follows)
+        ncm = re.search(
+            r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', line
+        )
+        if ncm:
+            pending_cluster_followers.append(int(ncm.group(1)))
+            continue
+
+        # Flush pending individual cluster lines when a new INTUITIVE cycle starts
+        if pending_cluster_followers and re.match(r'INTUITIVE:', line):
+            n_from_clusters = sum(f + 1 for f in pending_cluster_followers)
+            counted = min(n_from_clusters, max(0, remaining_orphans))
+            realocados_novo_cluster += counted
+            novos_clusters_formados += len(pending_cluster_followers)
+            remaining_orphans -= counted
+            pending_cluster_followers = []
+
+        # Reallocate summary — first effective only, capped by remaining orphans
+        if not first_realloc_found:
+            rm = re.search(
+                r'INTUITIVE_ACTION: Realocados (\d+), não realocados (\d+)', line
+            )
+            if rm:
+                r, nr = int(rm.group(1)), int(rm.group(2))
+                if r > 0 or nr > 0:
+                    counted = min(r, max(0, remaining_orphans))
+                    realocados_existente = counted
+                    nao_realocados = nr
+                    remaining_orphans -= counted
+                    first_realloc_found = True
+
+    # Flush any remaining pending cluster lines at EOF
+    if pending_cluster_followers:
+        n_from_clusters = sum(f + 1 for f in pending_cluster_followers)
+        counted = min(n_from_clusters, max(0, remaining_orphans))
+        realocados_novo_cluster += counted
+        novos_clusters_formados += len(pending_cluster_followers)
+
+    m['realocados_existente'] = realocados_existente
+    m['nao_realocados'] = nao_realocados
+    m['realocados_novo_cluster'] = realocados_novo_cluster
+    m['novos_clusters_formados'] = novos_clusters_formados
+    m['total_realocados'] = realocados_existente + realocados_novo_cluster
     m['taxa_realocacao'] = round(
         min(1.0, m['total_realocados'] / m['nos_orfaos']) * 100, 2
     ) if m['nos_orfaos'] > 0 else 0.0
