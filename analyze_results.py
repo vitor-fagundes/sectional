@@ -257,15 +257,22 @@ def parse_output_file(filepath, approach):
 
         # Orphan count: use ORPHAN_TOTAL if available, else sum from
         # "FAILURE: Líder X ... - Y nós órfãos" lines from the FIRST
-        # failure block only (before first INTUITIVE_DECISION:)
+        # failure block only (between first FAILURE: and the next
+        # INTUITIVE: t= decision line after it).
         orphan_total_m = re.search(r'ORPHAN_TOTAL: (\d+)', content)
         if orphan_total_m:
             metrics['orphan_total'] = int(orphan_total_m.group(1))
         elif failure_events_wf:
-            # Find position of first INTUITIVE_DECISION to delimit first block
-            first_decision_pos = content.find('INTUITIVE_DECISION:')
-            if first_decision_pos > 0:
-                first_block = content[:first_decision_pos]
+            # Delimit the first failure block: from first FAILURE: to the
+            # next "INTUITIVE: t=" decision line that follows it.
+            first_failure_pos = content.find('FAILURE:')
+            if first_failure_pos >= 0:
+                # Find the next INTUITIVE decision cycle after the failure block
+                next_decision = content.find('INTUITIVE: t=', first_failure_pos)
+                if next_decision > 0:
+                    first_block = content[first_failure_pos:next_decision]
+                else:
+                    first_block = content[first_failure_pos:]
             else:
                 first_block = content
             first_block_wf = re.findall(
@@ -286,9 +293,6 @@ def parse_output_file(filepath, approach):
         if metrics['orphan_total'] == 0 and failure_events_wf:
             metrics['orphan_total'] = sum(int(n) for _, _, n in failure_events_wf)
 
-    # Cap orphan_total at network size (200 nodes).  Runs with very high
-    # cluster counts can report overlapping membership, leading to sums > 200.
-    metrics['orphan_total'] = min(metrics['orphan_total'], 200)
     metrics['orphan_percentage'] = metrics['orphan_total'] / 200.0
 
     # ── RL metrics ──
@@ -353,30 +357,34 @@ def parse_output_file(filepath, approach):
         recluster_nodes = 0
         recluster_count = 0
         first_realloc_found = False
+        first_recluster_found = False
         pending_cluster_followers = []
 
         for line in lines:
-            # Recluster summary (preferred)
-            ncs = re.search(
-                r'INTUITIVE_ACTION: (\d+) novos clusters formados de (\d+) órfãos', line
-            )
-            if ncs:
-                n_clusters = int(ncs.group(1))
-                n_orphans = int(ncs.group(2))
-                counted = min(n_orphans, max(0, remaining_orphans))
-                recluster_nodes += counted
-                recluster_count += n_clusters
-                remaining_orphans -= counted
-                pending_cluster_followers = []
-                continue
+            # Recluster summary (preferred) — first effective only
+            if not first_recluster_found:
+                ncs = re.search(
+                    r'INTUITIVE_ACTION: (\d+) novos clusters formados de (\d+) órfãos', line
+                )
+                if ncs:
+                    n_clusters = int(ncs.group(1))
+                    n_orphans = int(ncs.group(2))
+                    counted = min(n_orphans, max(0, remaining_orphans))
+                    recluster_nodes += counted
+                    recluster_count += n_clusters
+                    remaining_orphans -= counted
+                    pending_cluster_followers = []
+                    first_recluster_found = True
+                    continue
 
-            # Individual new cluster line (fallback)
-            ncm = re.search(
-                r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', line
-            )
-            if ncm:
-                pending_cluster_followers.append(int(ncm.group(1)))
-                continue
+            # Individual new cluster line (fallback) — only before first summary
+            if not first_recluster_found:
+                ncm = re.search(
+                    r'INTUITIVE_ACTION: Novo cluster formado - Líder \S+ com (\d+) seguidores', line
+                )
+                if ncm:
+                    pending_cluster_followers.append(int(ncm.group(1)))
+                    continue
 
             # Flush pending cluster lines on new cycle
             if pending_cluster_followers and re.match(r'INTUITIVE:', line):
@@ -386,6 +394,7 @@ def parse_output_file(filepath, approach):
                 recluster_count += len(pending_cluster_followers)
                 remaining_orphans -= counted
                 pending_cluster_followers = []
+                first_recluster_found = True
 
             # Reallocate summary — first effective only
             if not first_realloc_found:
@@ -402,7 +411,7 @@ def parse_output_file(filepath, approach):
                         first_realloc_found = True
 
         # Flush remaining pending cluster lines at EOF
-        if pending_cluster_followers:
+        if pending_cluster_followers and not first_recluster_found:
             n_from = sum(f + 1 for f in pending_cluster_followers)
             counted = min(n_from, max(0, remaining_orphans))
             recluster_nodes += counted

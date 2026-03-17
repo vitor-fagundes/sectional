@@ -814,7 +814,7 @@ intuitive,cenario1_tempo_fixo/310s_30percent,7,18,12,6,51,25.5
 intuitive,cenario1_tempo_fixo/310s_30percent,8,21,12,9,62,31.0
 intuitive,cenario1_tempo_fixo/310s_30percent,9,19,12,7,59,29.5
 intuitive,cenario1_tempo_fixo/310s_30percent,10,18,12,6,47,23.5
-intuitive,cenario1_tempo_fixo/310s_30percent,11,88,47,41,200,100.0
+intuitive,cenario1_tempo_fixo/310s_30percent,11,88,47,41,292,146.0
 intuitive,cenario1_tempo_fixo/310s_30percent,12,22,10,12,36,18.0
 intuitive,cenario1_tempo_fixo/310s_30percent,13,27,22,5,60,30.0
 intuitive,cenario1_tempo_fixo/310s_30percent,14,14,6,8,40,20.0
@@ -831,7 +831,7 @@ intuitive,cenario1_tempo_fixo/310s_30percent,24,21,15,6,70,35.0
 intuitive,cenario1_tempo_fixo/310s_30percent,25,24,20,4,37,18.5
 intuitive,cenario1_tempo_fixo/310s_30percent,26,18,11,7,77,38.5
 intuitive,cenario1_tempo_fixo/310s_30percent,27,23,18,5,30,15.0
-intuitive,cenario1_tempo_fixo/310s_30percent,28,103,84,19,200,100.0
+intuitive,cenario1_tempo_fixo/310s_30percent,28,103,84,19,342,171.0
 intuitive,cenario1_tempo_fixo/310s_30percent,29,17,14,3,57,28.5
 intuitive,cenario1_tempo_fixo/310s_30percent,30,17,10,7,53,26.5
 intuitive,cenario1_tempo_fixo/310s_30percent,31,18,11,7,55,27.5
@@ -907,7 +907,7 @@ intuitive,cenario2_tempo_aleatorio/180-600s_20percent,30,18,9,9,45,22.5
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,31,16,14,2,51,25.5
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,32,18,13,5,30,15.0
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,33,21,13,8,15,7.5
-intuitive,cenario2_tempo_aleatorio/180-600s_20percent,34,112,77,35,200,100.0
+intuitive,cenario2_tempo_aleatorio/180-600s_20percent,34,112,77,35,309,154.5
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,35,17,10,7,38,19.0
 intuitive,cenario2_tempo_aleatorio/180-600s_30percent,1,22,18,4,50,25.0
 intuitive,cenario2_tempo_aleatorio/180-600s_30percent,2,17,12,5,21,10.5
