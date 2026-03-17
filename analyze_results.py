@@ -182,20 +182,11 @@ def parse_output_file(filepath, approach):
     metrics['failure_time'] = failure_time
 
     # ── Clustering ──
-    # For the intuitive approach, count only clusters registered before the
-    # first failure (LR: timestamp < failureTime).  CONTASKI forms clusters
-    # between t≈90 and t≈150; any LR: after t≈200 would be an artefact of
-    # the intuitive motor's RECLUSTER_ORPHANS action.
-    if approach == 'intuitive' and not math.isnan(failure_time):
-        lr_events = re.findall(r'LR: (\S+) at ([\d.]+)', content)
-        pre_failure_leaders = set()
-        for leader, ts in lr_events:
-            if float(ts) < failure_time:
-                pre_failure_leaders.add(leader)
-        metrics['total_clusters'] = len(pre_failure_leaders)
-    else:
-        ls_events = re.findall(r'N: LS (\S+)', content)
-        metrics['total_clusters'] = len(ls_events)
+    # Count clusters using N: LS (leader self-election) for ALL approaches.
+    # N: LS happens once per node during initial formation (~t=90s) and is
+    # NOT re-logged by the intuitive motor, avoiding inflated counts.
+    ls_events = re.findall(r'N: LS (\S+)', content)
+    metrics['total_clusters'] = len(ls_events)
 
     # Clusters that accepted at least one task (LA = Leader Accepts)
     la_events = re.findall(r'N: LA (\S+), (\d+), (\S+)', content)
