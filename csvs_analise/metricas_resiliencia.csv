@@ -814,7 +814,7 @@ intuitive,cenario1_tempo_fixo/310s_30percent,7,320.0,51,51,0,7,24,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,8,320.0,62,62,0,8,18,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,9,320.0,59,59,0,9,11,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,10,320.0,47,47,0,4,43,1.0
-intuitive,cenario1_tempo_fixo/310s_30percent,11,320.0,292,292,0,11,0,1.0
+intuitive,cenario1_tempo_fixo/310s_30percent,11,320.0,200,200,0,11,0,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,12,320.0,36,36,0,11,0,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,13,320.0,60,60,0,11,0,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,14,320.0,40,40,0,6,30,1.0
@@ -831,7 +831,7 @@ intuitive,cenario1_tempo_fixo/310s_30percent,24,320.0,70,70,0,10,5,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,25,320.0,37,37,0,11,0,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,26,320.0,77,77,0,10,5,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,27,320.0,30,30,0,9,14,1.0
-intuitive,cenario1_tempo_fixo/310s_30percent,28,320.0,342,0,0,11,0,0.0
+intuitive,cenario1_tempo_fixo/310s_30percent,28,320.0,200,0,0,11,0,0.0
 intuitive,cenario1_tempo_fixo/310s_30percent,29,320.0,57,57,0,10,5,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,30,320.0,53,53,0,7,24,1.0
 intuitive,cenario1_tempo_fixo/310s_30percent,31,320.0,55,55,0,11,1,1.0
@@ -907,7 +907,7 @@ intuitive,cenario2_tempo_aleatorio/180-600s_20percent,30,576.988,45,45,0,11,3,1.
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,31,514.343,51,51,0,10,5,1.0
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,32,525.609,30,30,0,11,1,1.0
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,33,197.262,15,15,0,7,24,1.0
-intuitive,cenario2_tempo_aleatorio/180-600s_20percent,34,565.405,309,309,0,11,0,1.0
+intuitive,cenario2_tempo_aleatorio/180-600s_20percent,34,565.405,200,200,0,11,0,1.0
 intuitive,cenario2_tempo_aleatorio/180-600s_20percent,35,598.578,38,38,0,11,3,1.0
 intuitive,cenario2_tempo_aleatorio/180-600s_30percent,1,345.493,50,50,0,11,1,1.0
 intuitive,cenario2_tempo_aleatorio/180-600s_30percent,2,511.49,21,21,0,10,5,1.0

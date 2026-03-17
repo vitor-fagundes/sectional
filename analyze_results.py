@@ -171,9 +171,31 @@ def parse_output_file(filepath, approach):
 
     metrics = {}
 
+    # ── Determine failure time first (needed for cluster filtering) ──
+    # Time can be integer (320) or decimal (331.173) depending on scenario
+    failure_events = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*)', content)
+    failure_events_wf = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*) - (\d+) nós órfãos', content)
+    failure_times = [float(t) for _, t in failure_events]
+    if not failure_times and failure_events_wf:
+        failure_times = [float(t) for _, t, _ in failure_events_wf]
+    failure_time = failure_times[0] if failure_times else float('nan')
+    metrics['failure_time'] = failure_time
+
     # ── Clustering ──
-    ls_events = re.findall(r'N: LS (\S+)', content)
-    metrics['total_clusters'] = len(ls_events)
+    # For the intuitive approach, count only clusters registered before the
+    # first failure (LR: timestamp < failureTime).  CONTASKI forms clusters
+    # between t≈90 and t≈150; any LR: after t≈200 would be an artefact of
+    # the intuitive motor's RECLUSTER_ORPHANS action.
+    if approach == 'intuitive' and not math.isnan(failure_time):
+        lr_events = re.findall(r'LR: (\S+) at ([\d.]+)', content)
+        pre_failure_leaders = set()
+        for leader, ts in lr_events:
+            if float(ts) < failure_time:
+                pre_failure_leaders.add(leader)
+        metrics['total_clusters'] = len(pre_failure_leaders)
+    else:
+        ls_events = re.findall(r'N: LS (\S+)', content)
+        metrics['total_clusters'] = len(ls_events)
 
     # Clusters that accepted at least one task (LA = Leader Accepts)
     la_events = re.findall(r'N: LA (\S+), (\d+), (\S+)', content)
@@ -221,24 +243,53 @@ def parse_output_file(filepath, approach):
     metrics['median_accept_latency'] = np.median(latencies) if latencies else float('nan')
 
     # ── Failures / Orphans ──
-    orphan_total_m = re.search(r'ORPHAN_TOTAL: (\d+)', content)
-    orphan_events = re.findall(r'ORPHAN: (\S+) \(was member of (\S+)\)', content)
-    # Time can be integer (320) or decimal (331.173) depending on scenario
-    failure_events = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*)', content)
-    failure_events_wf = re.findall(r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*) - (\d+) nós órfãos', content)
+    # For the intuitive approach, prefer the FAILURE summary line
+    # ("FAILURE: X de Y líderes") which gives the authoritative count,
+    # and extract orphans only from the first failure block (before the
+    # first INTUITIVE_DECISION: cycle).
+    if approach == 'intuitive':
+        # Authoritative failure count from summary line
+        failure_summary = re.search(r'FAILURE: (\d+) de (\d+) líderes', content)
+        if failure_summary:
+            metrics['num_leader_failures'] = int(failure_summary.group(1))
+        else:
+            metrics['num_leader_failures'] = len(failure_events)
 
-    # failure_events also matches wf lines (superset), so subtract wf count to avoid double-counting
-    metrics['num_leader_failures'] = max(len(failure_events), len(failure_events_wf))
-    metrics['orphan_total'] = int(orphan_total_m.group(1)) if orphan_total_m else len(orphan_events)
-    # with-fail reports orphans inline in FAILURE message
-    if metrics['orphan_total'] == 0 and failure_events_wf:
-        metrics['orphan_total'] = sum(int(n) for _, _, n in failure_events_wf)
+        # Orphan count: use ORPHAN_TOTAL if available, else sum from
+        # "FAILURE: Líder X ... - Y nós órfãos" lines from the FIRST
+        # failure block only (before first INTUITIVE_DECISION:)
+        orphan_total_m = re.search(r'ORPHAN_TOTAL: (\d+)', content)
+        if orphan_total_m:
+            metrics['orphan_total'] = int(orphan_total_m.group(1))
+        elif failure_events_wf:
+            # Find position of first INTUITIVE_DECISION to delimit first block
+            first_decision_pos = content.find('INTUITIVE_DECISION:')
+            if first_decision_pos > 0:
+                first_block = content[:first_decision_pos]
+            else:
+                first_block = content
+            first_block_wf = re.findall(
+                r'FAILURE: Líder \S+ falhou no tempo [\d.]+ - (\d+) nós órfãos',
+                first_block
+            )
+            metrics['orphan_total'] = sum(int(n) for n in first_block_wf)
+        else:
+            orphan_events = re.findall(r'ORPHAN: (\S+) \(was member of (\S+)\)', content)
+            metrics['orphan_total'] = len(orphan_events)
+    else:
+        # Non-intuitive approaches: original logic
+        orphan_total_m = re.search(r'ORPHAN_TOTAL: (\d+)', content)
+        orphan_events = re.findall(r'ORPHAN: (\S+) \(was member of (\S+)\)', content)
+        metrics['num_leader_failures'] = max(len(failure_events), len(failure_events_wf))
+        metrics['orphan_total'] = int(orphan_total_m.group(1)) if orphan_total_m else len(orphan_events)
+        # with-fail reports orphans inline in FAILURE message
+        if metrics['orphan_total'] == 0 and failure_events_wf:
+            metrics['orphan_total'] = sum(int(n) for _, _, n in failure_events_wf)
+
+    # Cap orphan_total at network size (200 nodes).  Runs with very high
+    # cluster counts can report overlapping membership, leading to sums > 200.
+    metrics['orphan_total'] = min(metrics['orphan_total'], 200)
     metrics['orphan_percentage'] = metrics['orphan_total'] / 200.0
-
-    failure_times = [float(t) for _, t in failure_events]
-    if not failure_times and failure_events_wf:
-        failure_times = [float(t) for _, t, _ in failure_events_wf]
-    metrics['failure_time'] = failure_times[0] if failure_times else float('nan')
 
     # ── RL metrics ──
     metrics['rl_successful_realloc'] = 0

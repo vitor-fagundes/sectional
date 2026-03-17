@@ -58,9 +58,27 @@ def parse_output_file(filepath):
 
     m = {}
 
+    # ── Determine failure time first (needed for cluster filtering) ──
+    failure_lines = re.findall(
+        r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*) - (\d+) nós órfãos', content
+    )
+    failure_times = [float(t) for _, t, _ in failure_lines]
+    m['tempo_falha'] = failure_times[0] if failure_times else float('nan')
+
     # ── Clustering ──
-    ls_events = re.findall(r'N: LS (\S+)', content)
-    m['total_agrupamentos'] = len(set(ls_events))
+    # Count only clusters registered before the first failure event.
+    # CONTASKI forms clusters between t≈90 and t≈150; any LR: after that
+    # would be an artefact of the intuitive motor's RECLUSTER_ORPHANS action.
+    if not math.isnan(m['tempo_falha']):
+        lr_events = re.findall(r'LR: (\S+) at ([\d.]+)', content)
+        pre_failure_leaders = set()
+        for leader, ts in lr_events:
+            if float(ts) < m['tempo_falha']:
+                pre_failure_leaders.add(leader)
+        m['total_agrupamentos'] = len(pre_failure_leaders)
+    else:
+        ls_events = re.findall(r'N: LS (\S+)', content)
+        m['total_agrupamentos'] = len(set(ls_events))
 
     # Leaders that accepted at least one task
     ta_events = re.findall(r'AP: TA (\d+), (\S+) (\S+)', content)
@@ -95,13 +113,36 @@ def parse_output_file(filepath):
     m['latencia_aceite_media'] = round(sum(latencies) / len(latencies), 6) if latencies else float('nan')
 
     # ── Failures ──
-    failure_lines = re.findall(
-        r'FAILURE: Líder (\S+) falhou no tempo (\d+\.?\d*) - (\d+) nós órfãos', content
-    )
-    m['lideres_falharam'] = len(failure_lines)
-    m['nos_orfaos'] = sum(int(n) for _, _, n in failure_lines)
-    failure_times = [float(t) for _, t, _ in failure_lines]
-    m['tempo_falha'] = failure_times[0] if failure_times else float('nan')
+    # Use the FAILURE summary line ("X de Y líderes") for authoritative count.
+    # Extract orphans only from the first failure block (before the first
+    # INTUITIVE_DECISION: cycle) to avoid counting re-reported orphans.
+    failure_summary = re.search(r'FAILURE: (\d+) de (\d+) líderes', content)
+    if failure_summary:
+        m['lideres_falharam'] = int(failure_summary.group(1))
+    else:
+        m['lideres_falharam'] = len(failure_lines)
+
+    # Orphans: ORPHAN_TOTAL preferred, else sum from first failure block only
+    orphan_total_m = re.search(r'ORPHAN_TOTAL: (\d+)', content)
+    if orphan_total_m:
+        m['nos_orfaos'] = int(orphan_total_m.group(1))
+    elif failure_lines:
+        first_decision_pos = content.find('INTUITIVE_DECISION:')
+        if first_decision_pos > 0:
+            first_block = content[:first_decision_pos]
+        else:
+            first_block = content
+        first_block_wf = re.findall(
+            r'FAILURE: Líder \S+ falhou no tempo [\d.]+ - (\d+) nós órfãos',
+            first_block
+        )
+        m['nos_orfaos'] = sum(int(n) for n in first_block_wf)
+    else:
+        m['nos_orfaos'] = 0
+
+    # Cap orphan_total at network size (200 nodes).  Runs with very high
+    # cluster counts can report overlapping membership, leading to sums > 200.
+    m['nos_orfaos'] = min(m['nos_orfaos'], 200)
 
     # Failure percentage
     pct_match = re.search(r'FAILURE: \d+ de \d+ líderes elegíveis irão falhar \(([\d.]+)%\)', content)
