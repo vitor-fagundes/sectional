@@ -17,7 +17,7 @@ O `sectional-optimal` é o ponto de partida do projeto. Executa a clusterizaçã
 contaski.cc            — Entrada principal: configura nós, rede e agenda eventos
 NodeApplication.cc/h   — Aplicação de cada nó (beaconing, disseminação, clustering)
 NodeAPApplication.cc/h — Aplicação do AP (recebe registros, despacha tarefas)
-capabilities.cc/h      — Vetores de capacidades e função de similaridade (Jaccard)
+capabilities.cc/h      — Vetores de capacidades e função de similaridade (Eq. 1 do artigo)
 task.cc/h              — Modelo de tarefas com capacidades requeridas e quorum
 constants.h            — Enum de tipos de mensagem
 MyTag.cc/h             — Tag NS-3 para identificação de mensagens UDP
@@ -43,10 +43,10 @@ MyTag.cc/h             — Tag NS-3 para identificação de mensagens UDP
 
 ### Similaridade de Capacidades
 
-Utiliza a função `capabilitiesSimilarity` (coeficiente de Jaccard):
+Utiliza a função `capabilitiesSimilarity` (Eq. 1 do artigo — Chen et al. 2016):
 
 ```
-sim(A, B) = |A ∩ B| / |A ∪ B|
+sim(ob1, ob2) = |C_ob1 ∩ C_ob2| / √(|C_ob1| × |C_ob2|)
 ```
 
 O limiar de inclusão no cluster é **`SIMILARITY_THRESHOLD = 0.95`** — apenas nós com alta sobreposição de capacidades são agrupados.
@@ -75,7 +75,7 @@ O líder eleito aumenta sua potência de transmissão (10 dBm, canal 11) para al
 
 | Parâmetro | Valor | Descrição |
 |---|---|---|
-| `SIMILARITY_THRESHOLD` | 0.95 | Limiar Jaccard para ingresso no cluster |
+| `SIMILARITY_THRESHOLD` | 0.95 | Limiar de similaridade para ingresso no cluster |
 | `SIMTIME` | 900 s | Duração total da simulação |
 | Início do beaconing | 0 s | Imediato ao iniciar a aplicação |
 | Disseminação de capacidades | 60–90 s | Broadcast a cada 0,5 s |
@@ -122,4 +122,3 @@ O líder eleito aumenta sua potência de transmissão (10 dBm, canal 11) para al
 | `sectional-rl2` | Adiciona formação de novos clusters entre órfãos |
 | `sectional-rl3` | Unifica rl1 + rl2 com estado composto (4 estados × 3 ações) |
 | `sectional-rl3.1` | Estende rl3 com recompensa contextualizada pelo tamanho do grupo |
-| `intuitive-sectional` / `ddos-intuitive` | Sistema dual S1/S2 com aprendizado intuitivo |
