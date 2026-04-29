@@ -153,4 +153,3 @@ r = REWARD_BASE × sizeFactor × simOrphan + bonusFormNewCluster
 | `sectional-rl1` | Q-Learning com 2 estados × 2 ações, apenas realocação |
 | `sectional-rl2` | Q-Learning com 2 estados × 2 ações, apenas novos clusters |
 | `sectional-rl3` | Mesma estrutura mas com recompensas binárias |
-| `intuitive-sectional` / `ddos-intuitive` | Sistema dual S1/S2 com aprendizado intuitivo |
